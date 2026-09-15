@@ -1,0 +1,49 @@
+name: Release Linux binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: worker/go.mod
+          cache: false
+      - uses: astral-sh/setup-uv@v6
+      - name: Test Go binaries
+        run: |
+          (cd cli && go test -race ./... && go vet ./...)
+          (cd worker && go test -race ./... && go vet ./...)
+      - name: Test installer and uninstaller
+        run: uv run tooling/test-install.py
+      - name: Package release
+        env:
+          TAG: ${{ github.ref_name }}
+        run: sh tooling/package-release.sh "$TAG" dist
+      - name: Publish private release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Refuse to publish if repository visibility was accidentally changed.
+          test "$(gh repo view --json visibility --jq .visibility)" = PRIVATE
+          flags=()
+          if [[ "$TAG" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" dist/* --verify-tag --draft "${flags[@]}" \
+            --title "$TAG" --notes 'Standalone Linux amd64/arm64 jobd and jobd-worker binaries. Install with the authenticated install.sh; see README for instructions.'
+          gh release edit "$TAG" --draft=false
