@@ -31,8 +31,8 @@ func parseConfig(args []string, output io.Writer) (Config, error) {
 	flags.StringVar(&config.Controller, "controller", envDefault("JOBD_CONTROLLER", "http://localhost:8787"), "controller URL")
 	flags.StringVar(&config.Queue, "queue", envDefault("JOBD_QUEUE", "default"), "queue name")
 	flags.StringVar(&config.StateDir, "state-dir", envDefault("JOBD_STATE_DIR", "~/.local/state/jobd-worker"), "identity and lock directory")
-	poll := flags.Float64("poll-interval", 2, "idle polling and HTTP retry interval in seconds")
-	heartbeat := flags.Float64("heartbeat-interval", 10, "heartbeat interval in seconds")
+	poll := flags.Float64("poll-interval", 5, "idle polling and HTTP retry interval in seconds")
+	heartbeat := flags.Float64("heartbeat-interval", 15, "heartbeat interval in seconds")
 	if err := flags.Parse(args); err != nil {
 		return config, err
 	}

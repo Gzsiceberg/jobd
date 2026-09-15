@@ -86,6 +86,9 @@ func TestConfigCompatibility(t *testing.T) {
 	if err != nil || config.Queue != "override" {
 		t.Fatalf("flag override: %+v %v", config, err)
 	}
+	if config.PollInterval != 5*time.Second || config.HeartbeatInterval != 15*time.Second {
+		t.Fatalf("default intervals: %+v", config)
+	}
 }
 
 func TestInvalidIntervals(t *testing.T) {
