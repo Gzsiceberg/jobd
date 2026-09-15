@@ -1,0 +1,16 @@
+{
+  "name": "jobd",
+  "private": true,
+  "packageManager": "pnpm@12.4.1",
+  "engines": {
+    "node": "24.x",
+    "pnpm": "12.4.1"
+  },
+  "scripts": {
+    "dev": "pnpm --filter jobd-controller dev",
+    "test": "pnpm --filter jobd-controller test",
+    "lint": "pnpm --filter jobd-controller lint",
+    "typecheck": "pnpm --filter jobd-controller typecheck",
+    "format": "pnpm --filter jobd-controller format"
+  }
+}

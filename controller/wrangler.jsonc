@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jobd-controller",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-01-01",
+  "workers_dev": false,
+  "durable_objects": {
+    "bindings": [{ "name": "SCHEDULER", "class_name": "SchedulerObject" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SchedulerObject"] }],
+}
