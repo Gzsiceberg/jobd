@@ -15,12 +15,24 @@ type Result struct {
 	ExitCode   *int
 	Error      string
 	OutputPath string
+	Progress   *float64
 }
 
 // Execute runs argv directly and saves combined stdout/stderr in a retained /tmp log.
-func Execute(ctx context.Context, command []string, grace time.Duration) (result Result) {
+func Execute(ctx context.Context, command []string, grace time.Duration, onOutput ...func(string) error) Result {
+	return execute(ctx, command, grace, nil, onOutput...)
+}
+
+func executionCancellation(ctx context.Context, fallback string) string {
+	if errors.Is(context.Cause(ctx), errRemoteCancellation) {
+		return errRemoteCancellation.Error()
+	}
+	return fallback
+}
+
+func execute(ctx context.Context, command []string, grace time.Duration, env []string, onOutput ...func(string) error) (result Result) {
 	if ctx.Err() != nil {
-		return Result{Error: "Worker shutting down"}
+		return Result{Error: executionCancellation(ctx, "Worker shutting down")}
 	}
 	if len(command) == 0 {
 		return Result{Error: "Empty command"}
@@ -36,8 +48,17 @@ func Execute(ctx context.Context, command []string, grace time.Duration) (result
 		}
 	}()
 	slog.Info("Command output redirected", "output", output.Name())
+	for _, notify := range onOutput {
+		if err := notify(output.Name()); err != nil {
+			return Result{Error: executionCancellation(ctx, truncateError(fmt.Sprintf("Report output path: %v", err)))}
+		}
+	}
+	if ctx.Err() != nil {
+		return Result{Error: executionCancellation(ctx, "Worker shut down before execution")}
+	}
 
 	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout = output
 	cmd.Stderr = output
 	// A new session lets shutdown target the group, including child processes.
@@ -69,9 +90,9 @@ func Execute(ctx context.Context, command []string, grace time.Duration) (result
 	code := cmd.ProcessState.ExitCode()
 	if code == 0 {
 		// A command trapping TERM may exit zero, but was still interrupted.
-		return Result{Error: "Worker shut down during execution"}
+		return Result{Error: executionCancellation(ctx, "Worker shut down during execution")}
 	}
-	return Result{ExitCode: &code, Error: "Worker shut down during execution"}
+	return Result{ExitCode: &code, Error: executionCancellation(ctx, "Worker shut down during execution")}
 }
 
 func processResult(cmd *exec.Cmd, err error) Result {

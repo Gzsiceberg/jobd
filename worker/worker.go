@@ -14,6 +14,7 @@ type Worker struct {
 	heartbeatInterval time.Duration
 	shutdownTimeout   time.Duration
 	processGrace      time.Duration
+	active            activeJobState
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -68,13 +69,13 @@ func (w *Worker) recoverPreviousJob(ctx context.Context, record WorkerRecord) er
 
 func (w *Worker) runJob(ctx context.Context, job Job) error {
 	slog.Info("Executing job", "job", job.ID, "command", job.Command)
-	if err := w.client.Progress(ctx, job.ID, 0); err != nil {
-		if ctx.Err() != nil {
-			return w.reportResult(ctx, job.ID, Result{Error: "Worker shut down before execution"})
-		}
-		return fmt.Errorf("initial progress for %s: %w", job.ID, err)
-	}
-	result := Execute(ctx, job.Command, w.processGrace)
+	jobCtx, cancel := context.WithCancelCause(ctx)
+	w.active.Activate(job.ID, cancel, job.CancelRequested != 0)
+	defer func() {
+		w.active.Deactivate(job.ID)
+		cancel(nil)
+	}()
+	result := w.executeJob(jobCtx, job)
 	// Do not claim another job until this result is accepted.
 	if err := w.reportResult(ctx, job.ID, result); err != nil {
 		return err
@@ -99,8 +100,11 @@ func (w *Worker) reportResult(ctx context.Context, jobID string, result Result) 
 
 func (w *Worker) heartbeatLoop(ctx context.Context) {
 	for ctx.Err() == nil {
-		if err := w.client.Heartbeat(ctx); err != nil && ctx.Err() == nil {
+		record, err := w.client.Heartbeat(ctx)
+		if err != nil && ctx.Err() == nil {
 			slog.Warn("Heartbeat failed", "error", err)
+		} else if err == nil && record.CancelJobID != nil {
+			w.active.RequestCancellation(*record.CancelJobID)
 		}
 		if err := wait(ctx, w.heartbeatInterval); err != nil {
 			return

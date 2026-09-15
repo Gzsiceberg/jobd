@@ -15,12 +15,14 @@ import (
 )
 
 type Job struct {
-	ID      string   `json:"id"`
-	Command []string `json:"command"`
+	ID              string   `json:"id"`
+	Command         []string `json:"command"`
+	CancelRequested int      `json:"cancel_requested"`
 }
 
 type WorkerRecord struct {
 	CurrentJobID *string `json:"current_job_id"`
+	CancelJobID  *string `json:"cancel_job_id"`
 }
 
 type ControllerClient struct {
@@ -59,8 +61,10 @@ func (c *ControllerClient) Register(ctx context.Context, hostname string) (Worke
 	return worker, err
 }
 
-func (c *ControllerClient) Heartbeat(ctx context.Context) error {
-	return c.post(ctx, c.workerPath("heartbeat"), struct{}{}, nil)
+func (c *ControllerClient) Heartbeat(ctx context.Context) (WorkerRecord, error) {
+	var record WorkerRecord
+	err := c.post(ctx, c.workerPath("heartbeat"), struct{}{}, &record)
+	return record, err
 }
 
 func (c *ControllerClient) Claim(ctx context.Context) (*Job, error) {
@@ -78,16 +82,24 @@ func (c *ControllerClient) Progress(ctx context.Context, jobID string, progress 
 	}{c.workerID, progress}, nil)
 }
 
+func (c *ControllerClient) Output(ctx context.Context, jobID, path string) error {
+	return c.post(ctx, "/jobs/"+url.PathEscape(jobID)+"/output", struct {
+		WorkerID   string `json:"worker_id"`
+		OutputPath string `json:"output_path"`
+	}{c.workerID, path}, nil)
+}
+
 func (c *ControllerClient) Finish(ctx context.Context, jobID string, result Result) error {
 	endpoint := "fail"
 	if result.ExitCode != nil && *result.ExitCode == 0 && result.Error == "" {
 		endpoint = "complete"
 	}
 	return c.post(ctx, "/jobs/"+url.PathEscape(jobID)+"/"+endpoint, struct {
-		WorkerID string `json:"worker_id"`
-		ExitCode *int   `json:"exit_code"`
-		Error    string `json:"error,omitempty"`
-	}{c.workerID, result.ExitCode, result.Error}, nil)
+		WorkerID string   `json:"worker_id"`
+		ExitCode *int     `json:"exit_code"`
+		Error    string   `json:"error,omitempty"`
+		Progress *float64 `json:"progress,omitempty"`
+	}{c.workerID, result.ExitCode, result.Error, result.Progress}, nil)
 }
 
 func (c *ControllerClient) workerPath(action string) string {

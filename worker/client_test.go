@@ -41,6 +41,10 @@ func TestQueueScopedRequests(t *testing.T) {
 			if body["worker_id"] != "worker" || body["hostname"] != "vm" {
 				t.Errorf("registration: %v", body)
 			}
+		case "/queues/batch-1/jobs/job/output":
+			if body["worker_id"] != "worker" || body["output_path"] != "/tmp/jobd-test.log" {
+				t.Errorf("output: %v", body)
+			}
 		case "/queues/batch-1/jobs/job/fail":
 			if body["exit_code"] != nil || body["error"] != "launch failed" {
 				t.Errorf("failure: %v", body)
@@ -52,13 +56,16 @@ func TestQueueScopedRequests(t *testing.T) {
 	if _, err := client.Register(ctx, "vm"); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Heartbeat(ctx); err != nil {
+	if _, err := client.Heartbeat(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if job, err := client.Claim(ctx); err != nil || job != nil {
 		t.Fatalf("claim: %v %v", job, err)
 	}
 	if err := client.Progress(ctx, "job", 0.5); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Output(ctx, "job", "/tmp/jobd-test.log"); err != nil {
 		t.Fatal(err)
 	}
 	zero := 0
@@ -71,7 +78,7 @@ func TestQueueScopedRequests(t *testing.T) {
 	want := []string{
 		"/queues/batch-1/workers/register", "/queues/batch-1/workers/worker/heartbeat",
 		"/queues/batch-1/workers/worker/claim", "/queues/batch-1/jobs/job/progress",
-		"/queues/batch-1/jobs/job/complete", "/queues/batch-1/jobs/job/fail",
+		"/queues/batch-1/jobs/job/output", "/queues/batch-1/jobs/job/complete", "/queues/batch-1/jobs/job/fail",
 	}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("paths: %v", paths)
@@ -133,7 +140,7 @@ func TestRetryWaitIsCancellable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- client.Heartbeat(ctx) }()
+	go func() { _, err := client.Heartbeat(ctx); done <- err }()
 	<-requested
 	cancel()
 	select {

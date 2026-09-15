@@ -24,6 +24,36 @@ func testWorker(client *ControllerClient) *Worker {
 	}
 }
 
+func TestAlreadyRequestedCancellationDoesNotLaunch(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "should-not-exist")
+	var reported bool
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/queues/batch-1/jobs/job/fail" {
+			t.Errorf("unexpected request: %s", r.URL.Path)
+		}
+		var body struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		if body.Error != "Job cancelled by user" {
+			t.Errorf("error: %s", body.Error)
+		}
+		reported = true
+		fmt.Fprint(w, `{}`)
+	})
+	if err := testWorker(client).runJob(context.Background(), Job{ID: "job", Command: []string{"touch", marker}, CancelRequested: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if !reported {
+		t.Fatal("missing cancellation report")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("cancelled job launched")
+	}
+}
+
 func TestWorkerRecoveryExecutionAndReportingOrder(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -81,7 +111,7 @@ func TestWorkerRecoveryExecutionAndReportingOrder(t *testing.T) {
 	defer mu.Unlock()
 	want := []string{
 		"/workers/register", "/jobs/old/fail", "/workers/worker/claim",
-		"/jobs/new/progress", "/jobs/new/complete", "/jobs/new/complete",
+		"/jobs/new/output", "/jobs/new/complete", "/jobs/new/complete",
 		"/jobs/new/complete", "/workers/worker/claim",
 	}
 	if !reflect.DeepEqual(events, want) {
@@ -156,7 +186,7 @@ func TestCancellationBeforeLaunchReportsFailure(t *testing.T) {
 	var reported atomic.Bool
 	marker := filepath.Join(t.TempDir(), "should-not-exist")
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/progress") {
+		if strings.HasSuffix(r.URL.Path, "/output") {
 			cancel()
 			w.WriteHeader(503)
 			return

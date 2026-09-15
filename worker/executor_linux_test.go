@@ -12,6 +12,40 @@ import (
 	"time"
 )
 
+func TestOutputReportedBeforeLaunch(t *testing.T) {
+	for _, reject := range []bool{false, true} {
+		marker := filepath.Join(t.TempDir(), "started")
+		var reported string
+		result := Execute(context.Background(), []string{"touch", marker}, time.Millisecond, func(path string) error {
+			reported = path
+			if _, err := os.Stat(path); err != nil {
+				t.Error(err)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Error("command started before reporting")
+			}
+			if reject {
+				return fmt.Errorf("controller rejected output")
+			}
+			return nil
+		})
+		os.Remove(result.OutputPath)
+		if reported == "" || reported != result.OutputPath {
+			t.Fatalf("output: %+v", result)
+		}
+		if reject {
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("executed despite reporting failure")
+			}
+			if !strings.Contains(result.Error, "controller rejected output") {
+				t.Fatal(result.Error)
+			}
+		} else if result.ExitCode == nil || *result.ExitCode != 0 {
+			t.Fatalf("result: %+v", result)
+		}
+	}
+}
+
 func TestExecuteCombinedOutput(t *testing.T) {
 	// Output must go specifically to /tmp, even if TMPDIR is configured.
 	t.Setenv("TMPDIR", t.TempDir())
