@@ -15,10 +15,13 @@ type JobRow = {
   progress: number;
   exit_code: number | null;
   error: string | null;
+  output_path: string | null;
+  hostname: string | null;
+  cancel_requested: number;
 };
 
 const jobColumns =
-  'id, status, command, created_at, started_at, finished_at, worker_id, progress, exit_code, error';
+  'id, status, command, created_at, started_at, finished_at, worker_id, progress, exit_code, error, output_path, cancel_requested, (SELECT hostname FROM workers WHERE workers.worker_id = jobs.worker_id) AS hostname';
 
 /** Queue operations use the Durable Object's SQLite storage directly. */
 export class Scheduler {
@@ -34,10 +37,13 @@ export class Scheduler {
       worker_id TEXT,
       progress REAL NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 1),
       exit_code INTEGER,
-      error TEXT
+      error TEXT,
+      cancel_requested INTEGER NOT NULL DEFAULT 0,
+      output_path TEXT,
+      queue_position INTEGER NOT NULL DEFAULT 0
     )`);
     this.storage.sql.exec(
-      'CREATE INDEX IF NOT EXISTS jobs_queued ON jobs(status, sequence)',
+      'CREATE INDEX IF NOT EXISTS jobs_queue_order ON jobs(status, queue_position, sequence)',
     );
     this.storage.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS jobs_running_worker
       ON jobs(worker_id) WHERE status = 'running'`);
@@ -67,13 +73,117 @@ export class Scheduler {
   }
 
   submit(command: string[]): Job {
-    const id = crypto.randomUUID();
+    return this.storage.transactionSync(() => {
+      const row = this.storage.sql
+        .exec<{ sequence: number }>(
+          `INSERT INTO jobs (id, status, command, created_at)
+         VALUES ('', 'queued', ?, ?) RETURNING sequence`,
+          JSON.stringify(command),
+          new Date().toISOString(),
+        )
+        .toArray()[0];
+      const id = String(row.sequence);
+      this.storage.sql.exec(
+        'UPDATE jobs SET id = ?, queue_position = sequence WHERE sequence = ?',
+        id,
+        row.sequence,
+      );
+      return this.job(id);
+    });
+  }
+
+  list(limit: number, offset: number): Job[] {
+    return this.storage.sql
+      .exec<JobRow>(
+        `SELECT ${jobColumns} FROM jobs ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, queue_position, sequence LIMIT ? OFFSET ?`,
+        limit,
+        offset,
+      )
+      .toArray()
+      .map((row) => ({ ...row, command: JSON.parse(row.command) as string[] }));
+  }
+
+  latest(kind: 'added' | 'run'): Job {
+    const row = this.storage.sql
+      .exec<{ id: string }>(
+        kind === 'added'
+          ? 'SELECT id FROM jobs ORDER BY sequence DESC LIMIT 1'
+          : 'SELECT id FROM jobs WHERE started_at IS NOT NULL ORDER BY started_at DESC, sequence DESC LIMIT 1',
+      )
+      .toArray()[0];
+    if (!row) throw new ApiError(404, 'No matching job');
+    return this.job(row.id);
+  }
+
+  clear(): void {
     this.storage.sql.exec(
-      `INSERT INTO jobs (id, status, command, created_at)
-      VALUES (?, 'queued', ?, ?)`,
+      "DELETE FROM jobs WHERE status IN ('succeeded', 'failed')",
+    );
+  }
+
+  remove(id: string): void {
+    this.storage.transactionSync(() => {
+      if (this.job(id).status === 'running')
+        throw new ApiError(409, 'Cannot remove a running job');
+      this.storage.sql.exec('DELETE FROM jobs WHERE id = ?', id);
+    });
+  }
+
+  reorder(id: string, other?: string): void {
+    this.storage.transactionSync(() => {
+      for (const target of other === undefined ? [id] : [id, other]) {
+        if (this.job(target).status !== 'queued')
+          throw new ApiError(409, 'Only queued jobs can be reordered');
+      }
+      if (other !== undefined) {
+        const position = (target: string) =>
+          this.storage.sql
+            .exec<{ queue_position: number }>(
+              'SELECT queue_position FROM jobs WHERE id = ?',
+              target,
+            )
+            .toArray()[0].queue_position;
+        const first = position(id),
+          second = position(other);
+        this.storage.sql.exec(
+          'UPDATE jobs SET queue_position = ? WHERE id = ?',
+          second,
+          id,
+        );
+        this.storage.sql.exec(
+          'UPDATE jobs SET queue_position = ? WHERE id = ?',
+          first,
+          other,
+        );
+      } else {
+        this.storage.sql.exec(
+          "UPDATE jobs SET queue_position = (SELECT MIN(queue_position) - 1 FROM jobs WHERE status = 'queued') WHERE id = ?",
+          id,
+        );
+      }
+    });
+  }
+
+  cancel(id: string): Job {
+    return this.storage.transactionSync(() => {
+      const job = this.job(id);
+      if (job.status !== 'running')
+        throw new ApiError(409, 'Only running jobs can be cancelled');
+      this.storage.sql.exec(
+        'UPDATE jobs SET cancel_requested = 1 WHERE id = ?',
+        id,
+      );
+      return this.job(id);
+    });
+  }
+
+  output(id: string, workerId: string, path: string): Job {
+    const job = this.ownedJob(id, workerId);
+    if (job.status !== 'running') throw new ApiError(409, 'Job is not running');
+    this.storage.sql.exec(
+      'UPDATE jobs SET output_path = ? WHERE id = ?',
+      path,
       id,
-      JSON.stringify(command),
-      new Date().toISOString(),
     );
     return this.job(id);
   }
@@ -92,13 +202,21 @@ export class Scheduler {
     return this.worker(workerId);
   }
 
-  heartbeat(id: string): Worker {
-    this.storage.sql.exec(
-      'UPDATE workers SET last_heartbeat = ? WHERE worker_id = ?',
-      new Date().toISOString(),
-      id,
-    );
-    return this.worker(id);
+  heartbeat(id: string): Worker & { cancel_job_id: string | null } {
+    return this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        'UPDATE workers SET last_heartbeat = ? WHERE worker_id = ?',
+        new Date().toISOString(),
+        id,
+      );
+      const worker = this.worker(id);
+      const cancelJobID =
+        worker.current_job_id &&
+        this.job(worker.current_job_id).cancel_requested
+          ? worker.current_job_id
+          : null;
+      return { ...worker, cancel_job_id: cancelJobID };
+    });
   }
 
   claim(id: string): Job | null {
@@ -113,7 +231,7 @@ export class Scheduler {
       if (worker.current_job_id) return this.job(worker.current_job_id);
       const next = this.storage.sql
         .exec<{ id: string }>(
-          "SELECT id FROM jobs WHERE status = 'queued' ORDER BY sequence LIMIT 1",
+          "SELECT id FROM jobs WHERE status = 'queued' ORDER BY queue_position, sequence LIMIT 1",
         )
         .toArray()[0];
       if (!next) return null;
@@ -156,6 +274,7 @@ export class Scheduler {
     succeeded: boolean,
     exitCode: number | null,
     error: string | null,
+    progress?: number,
   ): Job {
     return this.storage.transactionSync(() => {
       const job = this.ownedJob(id, workerId);
@@ -171,7 +290,7 @@ export class Scheduler {
         exitCode,
         succeeded ? null : error,
         new Date().toISOString(),
-        succeeded ? 1 : job.progress,
+        succeeded ? 1 : Math.max(job.progress, progress ?? job.progress),
         id,
       );
       this.storage.sql.exec(

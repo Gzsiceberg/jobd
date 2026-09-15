@@ -17,7 +17,10 @@ const submission = z.object({
 });
 const registration = owner.extend({ hostname: text });
 const progress = owner.extend({ progress: z.number().min(0).max(1) });
-const completion = owner.extend({ exit_code: z.literal(0) });
+const completion = owner.extend({
+  exit_code: z.literal(0),
+  progress: z.number().min(0).max(1).optional(),
+});
 const failure = owner.extend({
   exit_code: z
     .number()
@@ -25,6 +28,7 @@ const failure = owner.extend({
     .refine((code) => code !== 0)
     .nullable(),
   error: text,
+  progress: z.number().min(0).max(1).optional(),
 });
 
 /** HTTP validation; the scheduler owns persistence and transactions. */
@@ -44,6 +48,57 @@ export function createApi(scheduler: Scheduler) {
   app.post('/jobs', async (c) => {
     const body = submission.parse(await c.req.json<unknown>());
     return c.json(scheduler.submit(body.command), 201);
+  });
+  app.get('/jobs', (c) => {
+    const limit = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .parse(c.req.query('limit') ?? 100);
+    const offset = z.coerce
+      .number()
+      .int()
+      .min(0)
+      .parse(c.req.query('offset') ?? 0);
+    return c.json({ jobs: scheduler.list(limit, offset) });
+  });
+  app.get('/jobs/latest', (c) =>
+    c.json(
+      scheduler.latest(
+        z.enum(['added', 'run']).parse(c.req.query('kind') ?? 'added'),
+      ),
+    ),
+  );
+  app.post('/jobs/clear', (c) => {
+    scheduler.clear();
+    return c.json({ ok: true });
+  });
+  app.post('/jobs/swap', async (c) => {
+    const body = z
+      .object({ first: text, second: text })
+      .parse(await c.req.json<unknown>());
+    scheduler.reorder(body.first, body.second);
+    return c.json({ ok: true });
+  });
+  app.delete('/jobs/:id', (c) => {
+    scheduler.remove(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+  app.post('/jobs/:id/cancel', (c) =>
+    c.json(scheduler.cancel(c.req.param('id'))),
+  );
+  app.post('/jobs/:id/urgent', (c) => {
+    scheduler.reorder(c.req.param('id'));
+    return c.json({ ok: true });
+  });
+  app.post('/jobs/:id/output', async (c) => {
+    const body = owner
+      .extend({ output_path: text })
+      .parse(await c.req.json<unknown>());
+    return c.json(
+      scheduler.output(c.req.param('id'), body.worker_id, body.output_path),
+    );
   });
   app.get('/jobs/:id', (c) => c.json(scheduler.job(c.req.param('id'))));
   app.post('/workers/register', async (c) => {
@@ -73,6 +128,7 @@ export function createApi(scheduler: Scheduler) {
         true,
         body.exit_code,
         null,
+        body.progress,
       ),
     );
   });
@@ -85,6 +141,7 @@ export function createApi(scheduler: Scheduler) {
         false,
         body.exit_code,
         body.error,
+        body.progress,
       ),
     );
   });

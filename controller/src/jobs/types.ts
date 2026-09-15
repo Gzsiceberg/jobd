@@ -11,4 +11,7 @@ export interface Job {
   progress: number;
   exit_code: number | null;
   error: string | null;
+  output_path: string | null;
+  hostname: string | null;
+  cancel_requested: number;
 }
