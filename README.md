@@ -14,14 +14,14 @@ Cloudflare Controller
 ```
 
 - `controller/`: TypeScript, Hono HTTP routes, Zod input validation. Each uniquely named queue gets its own SQLite-backed Durable Object, with isolated jobs, worker records and atomic claims. Cloudflare integration lives in `src/index.ts`.
-- `worker/`: Python/uv daemon; one command at a time, stable local identity, periodic heartbeats, HTTP retries and SIGINT/SIGTERM process-group cleanup.
+- `worker/`: Go daemon (standard library only); one command at a time, stable local identity, periodic heartbeats, HTTP retries and SIGINT/SIGTERM process-group cleanup.
 - `tooling/eslint/base.mjs` and `tsconfig.base.json`: copied from Tau; all config references are local. `controller/tsconfig.eslint.json` extends the controller config, which extends the shared base.
 
 Lifecycle: `queued -> running -> succeeded | failed`.
 
 ## Local development
 
-Requires Node.js 24 (`.nvmrc`), pnpm 12.4.1, Python 3.14 and uv (`worker/.python-version` pins uv to 3.14). Workers target Linux/POSIX VMs.
+Requires Node.js 24 (`.nvmrc`), pnpm 12.4.1 and Go 1.25 or newer. Workers target Linux VMs; deployed worker binaries do not need Go installed.
 
 ```sh
 nvm install && nvm use     # if using nvm
@@ -34,8 +34,8 @@ In another terminal:
 
 ```sh
 cd worker
-uv sync
-uv run jobd-worker --controller http://localhost:8787 --queue default
+go build -o jobd-worker .
+./jobd-worker --controller http://localhost:8787 --queue default
 ```
 
 Submit and inspect a job:
@@ -48,9 +48,28 @@ curl -s http://localhost:8787/queues/default/jobs \
 curl -s http://localhost:8787/queues/default/jobs/JOB_ID
 ```
 
-Commands are argv arrays, not shell strings. Explicit shell usage is possible with `["sh", "-c", "..."]`. Output goes to the worker's stdout/stderr; no logs are stored centrally. Progress is a fraction from 0 to 1; arbitrary commands have no inferred intermediate progress. The daemon reports 0 at start and completion sets 1 on success.
+Commands are argv arrays, not shell strings. Explicit shell usage is possible with `["sh", "-c", "..."]`. Each command's stdout and stderr are combined in a unique `/tmp/jobd-*.log` file (owner-only permissions). The Go worker logs the path when execution starts and when the job finishes. Files remain after success, failure or shutdown; the worker does not rotate or delete them, so arrange cleanup as needed. No logs are stored centrally. Progress is a fraction from 0 to 1; arbitrary commands have no inferred intermediate progress. The daemon reports 0 at start and completion sets 1 on success.
 
-The worker stores its ID in `~/.local/state/jobd-worker`. Use `--state-dir PATH` for separate daemons; never copy an identity to another VM. Poll and heartbeat intervals default to 2 and 10 seconds (`--poll-interval`, `--heartbeat-interval`). Ctrl-C stops the worker and terminates its active process group.
+The worker stores its ID in `~/.local/state/jobd-worker`. Use `--state-dir PATH` for separate daemons; never copy an identity to another VM. Poll and heartbeat intervals default to 2 and 10 seconds (`--poll-interval`, `--heartbeat-interval`, both in seconds). `JOBD_CONTROLLER`, `JOBD_QUEUE` and `JOBD_STATE_DIR` provide environment defaults; flags take precedence.
+
+Ctrl-C or SIGTERM stops polling and sends TERM to the active process group, followed by KILL after a 5-second grace period. A final result report has a separate 10-second deadline. HTTP calls retry network failures, 429 and 5xx at the poll interval; other HTTP errors are not retried by the client. Results stay in memory until accepted, so another job is not claimed while a report is pending.
+
+On restart, an existing assignment is marked failed with an unknown outcome rather than executed again.
+
+### Worker layout
+
+- `main.go`: CLI configuration, signals and startup.
+- `identity_linux.go`: persistent UUID and single-daemon file lock.
+- `worker.go`: register → recover → claim → execute → report, plus heartbeat lifecycle.
+- `client.go`: typed API records and one context-aware HTTP retry loop.
+- `executor_linux.go`: direct argv execution and process-group shutdown.
+
+Build a standalone binary for a Linux VM (use `GOARCH=arm64` for ARM):
+
+```sh
+cd worker
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o jobd-worker .
+```
 
 ## API
 
@@ -81,9 +100,9 @@ pnpm lint
 pnpm test
 pnpm format
 cd worker
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
+go test -race ./...
+go vet ./...
+test -z "$(gofmt -l *.go)"
 ```
 
 ## Deployment and limits
