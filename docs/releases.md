@@ -1,26 +1,30 @@
 # Publishing releases
 
-[Overview](../README.md) · [Installation](installation.md) · [Development and testing](development.md)
+[Overview](../README.md) · [Installation](installation.md) · [Development](development.md)
 
-Commands below run from the repository root.
+Run commands from the repository root.
 
 ## Publish a GitHub release
 
-Commit and push the installer/workflow changes before tagging. A version tag triggers [the release workflow](../.github/workflows/release.yml):
+Commit and push changes first. Tag with a new version:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-The workflow:
+The [workflow](../.github/workflows/release.yml):
 
-1. Tests the Go code and installers.
+1. Tests Go code and installers.
 2. Builds static Linux amd64/arm64 binaries.
-3. Creates a draft GitHub Release containing architecture-specific archives (binaries, uninstaller and MIT `LICENSE`), installer/uninstaller scripts, and `SHA256SUMS`.
-4. Publishes the completed release.
+3. Creates a draft with archives, scripts and `SHA256SUMS`.
+4. Publishes the release.
 
-Release visibility follows repository visibility. For anonymous installation, make the repository public and publish a new release with the license-bearing archive format. The workflow works for either repository visibility; the public curl installer cannot download private assets. Tags with a hyphen are published as prereleases; install those using `--version`. Do not move published version tags. If publishing fails after draft creation, inspect that draft before rerunning.
+Archives include binaries, the uninstaller and MIT `LICENSE`.
+
+Releases inherit repository visibility. Anonymous installs require a public repository and license-bearing archives. The installer cannot fetch private assets.
+
+Tags containing a hyphen become prereleases. Install them with `--version`. Never move published tags. If publishing fails, inspect the draft before retrying.
 
 ## Local packaging and installer tests
 
@@ -29,4 +33,4 @@ sh tooling/package-release.sh v0.1.0 dist
 uv run tooling/test-install.py
 ```
 
-[The packaging script](../tooling/package-release.sh) builds standalone binaries without installing them on the host. [Installer tests](../tooling/test-install.py) build and execute real binaries but replace GitHub downloads with a local anonymous HTTPS-download fixture; they never publish releases or modify your actual installation.
+[Packaging](../tooling/package-release.sh) builds binaries without installing them. [Tests](../tooling/test-install.py) run real binaries with local download fixtures. Neither publishes releases nor changes your installation.

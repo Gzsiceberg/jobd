@@ -1,49 +1,52 @@
 # Controller
 
-[Overview](../README.md) · [Local development](../docs/development.md) · [CLI](../cli/README.md) · [Worker](../worker/README.md)
+[Overview](../README.md) · [Development](../docs/development.md) · [CLI](../cli/README.md) · [Worker](../worker/README.md)
 
-The controller uses TypeScript, Hono HTTP routes and Zod input validation. Each uniquely named queue gets its own SQLite-backed Cloudflare Durable Object, with isolated jobs, worker records and atomic claims. Cloudflare integration lives in [src/index.ts](src/index.ts).
+TypeScript, Hono and Zod. Each queue has a SQLite-backed Cloudflare Durable Object. Claims and completion are atomic. Integration: [src/index.ts](src/index.ts).
 
 ## API
 
-All routes below are prefixed with `/queues/:name` (for example, `/queues/default/jobs`). All request bodies are JSON. IDs in paths come from returned records.
+Prefix every route with `/queues/:name`. Bodies are JSON. Unprefixed routes are not served.
 
-Queue names are unique within the controller deployment and must match `[a-z0-9][a-z0-9_-]{0,62}`. Queues are created on first use; the same name always selects the same Durable Object. A worker serves one queue, selected with `--queue` or `JOBD_QUEUE` (default: `default`). Use separate daemons and state directories to serve multiple queues. There is no queue registry or cross-queue claiming.
+Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names select separate storage, not separate permissions.
 
-Unprefixed API routes are not served.
+Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use separate daemons and state directories for more queues. There is no queue registry or cross-queue claiming.
 
-| Method | Path | Body |
+| Method | Path | Body / notes |
 | --- | --- | --- |
 | POST | `/jobs` | `{"command":["echo","hello"]}` |
 | GET | `/jobs/:id` | — |
-| GET | `/jobs?limit=100&offset=0` | — (limit 1–100; returns `{jobs:[...]}`) |
-| GET | `/jobs/latest?kind=added` | — (`added` or `run`) |
+| GET | `/jobs?limit=100&offset=0` | Limit 1–100; returns `{jobs:[...]}` |
+| GET | `/jobs/latest?kind=added` | Kind: `added` or `run` |
 | POST | `/jobs/clear` | `{}` |
-| DELETE | `/jobs/:id` | — (rejects running jobs) |
-| POST | `/jobs/:id/urgent` | `{}` (queued only) |
-| POST | `/jobs/:id/cancel` | `{}` (running only; records intent, returns job) |
-| POST | `/jobs/swap` | `{"first":"ID1","second":"ID2"}` (queued only) |
+| DELETE | `/jobs/:id` | Rejects running jobs |
+| POST | `/jobs/:id/urgent` | `{}`; queued only |
+| POST | `/jobs/:id/cancel` | `{}`; running only; returns job |
+| POST | `/jobs/swap` | `{"first":"ID1","second":"ID2"}`; queued only |
 | POST | `/jobs/:id/output` | `{"worker_id":"...","output_path":"/tmp/jobd-....log"}` |
 | POST | `/workers/register` | `{"worker_id":"...","hostname":"vm-1"}` |
-| POST | `/workers/:id/heartbeat` | `{}` (no progress) |
+| POST | `/workers/:id/heartbeat` | `{}`; no progress |
 | POST | `/workers/:id/claim` | `{}` |
 | POST | `/jobs/:id/progress` | `{"worker_id":"...","progress":0.5}` |
-| POST | `/jobs/:id/complete` | `{"worker_id":"...","exit_code":0,"progress":1}` (progress optional) |
-| POST | `/jobs/:id/fail` | `{"worker_id":"...","exit_code":1,"error":"failed","progress":0.5}` (progress optional) |
+| POST | `/jobs/:id/complete` | `{"worker_id":"...","exit_code":0,"progress":1}` |
+| POST | `/jobs/:id/fail` | `{"worker_id":"...","exit_code":1,"error":"failed","progress":0.5}` |
 
-Heartbeat replies include `cancel_job_id` (the assigned job to cancel, or `null`). Job records expose `cancel_requested` as 0 or 1; a pending request alone does not imply the process stopped.
+- Claim returns `{"job":null}` or `{"job":{...}}`. Retrying returns the existing assignment.
+- Terminal reports are retry-safe. Their `progress` field is optional. Pre-launch failures may use `exit_code: null`.
+- Heartbeats return `cancel_job_id`, or `null`. Jobs expose `cancel_requested` as 0 or 1. A request does not mean the process stopped.
+- Worker status comes from assignments, not heartbeat payloads.
 
-Claim returns `{"job":null}` when idle or `{"job":{...}}`. Retrying a claim returns the worker's existing assignment; terminal reports are retry-safe. Failures before launch may use `exit_code: null`. Worker busy/idle status and current job are derived from assignments, not trusted heartbeat payloads.
-
-See the worker guide for [progress reporting](../worker/README.md#reporting-progress-from-a-job) and [remote cancellation](../worker/README.md#remote-cancellation).
+See [progress](../worker/README.md#reporting-progress-from-a-job) and [cancellation](../worker/README.md#remote-cancellation).
 
 ## Storage and IDs
 
-Job IDs are auto-incrementing numbers per queue, represented as decimal strings in JSON. They start at 1 for an empty queue and are never reused after deletion, so IDs can have gaps. Worker IDs are UUIDs.
+Each queue stores jobs and workers separately. Claims follow FIFO unless reordered.
 
-New queues are initialized with the complete current schema. Existing queues are expected to already use that schema and numeric job IDs; startup does not migrate schemas or rewrite IDs.
+Job IDs start at 1 per queue. They are decimal strings in JSON and never reused after deletion. Worker IDs are UUIDs.
 
-List requests fetch pages of up to 100; concurrent queue changes can affect pagination (not a snapshot).
+New queues get the current schema. Existing queues must already match it and use numeric job IDs. There are no startup migrations.
+
+Lists use pages of up to 100, not snapshots. Concurrent changes can affect pagination.
 
 ## Deployment and limits
 
@@ -52,22 +55,22 @@ From the repository root:
 ```sh
 pnpm --filter jobd-controller exec wrangler login
 pnpm --filter jobd-controller deploy
-pnpm --filter jobd-controller exec wrangler secret put JOBD_API_KEY
-```
-
-Every HTTP route requires `Authorization: Bearer <JOBD_API_KEY>`. Missing or incorrect credentials return 401; an unset controller key returns 503 (no unauthenticated fallback). Use the same strong random key in the controller, CLI and workers. For local development, set `JOBD_API_KEY` in `controller/.dev.vars` (gitignored). Include the Authorization header in raw HTTP requests.
-
-Generate a 256-bit random key with uv (no third-party Python dependencies):
-
-```sh
 export JOBD_API_KEY="$(uv run tooling/generate-api-key.py)"
 printf '%s' "$JOBD_API_KEY" | pnpm --filter jobd-controller exec wrangler secret put JOBD_API_KEY
 ```
 
-Reuse that same key for the CLI and workers; do not generate a different key for each component.
+Use this same key in the CLI and workers. For development, put it in `controller/.dev.vars` (gitignored).
 
-The default endpoint is `https://jobd-controller.aflashsheng.workers.dev`; `workers_dev` is enabled. Configure the `JOBD_API_KEY` secret before using it. **There is no execution sandbox: anyone holding the shared key can execute commands on your VMs in any queue. Run workers as an unprivileged user.**
+Every route requires `Authorization: Bearer <JOBD_API_KEY>`. Invalid or missing credentials return 401. An unset controller key returns 503.
 
-This is a scaffold, not a production scheduler. Each queue has separate SQLite `jobs` and `workers` tables in its own Durable Object. Operations read/update individual rows; claiming and completion update both tables atomically. An index selects queued jobs in queue order (FIFO unless explicitly reordered). Only each command's argv array is JSON-encoded.
+The default endpoint is `https://jobd-controller.aflashsheng.workers.dev`; `workers_dev` is enabled. Set the secret before use. Self-hosters should set their own endpoint explicitly.
 
-There are no leases, stale-worker recovery, automatic job retries or advanced scheduling. Network errors are retried; failed jobs are not requeued. On restart, a worker marks its previous assignment failed rather than replaying an unknown outcome. Lost shutdown reports or permanently lost VMs can leave jobs running. Execution is not exactly-once, and results are not durably buffered on the worker.
+**The shared key grants command execution in every queue. There is no sandbox.** Run workers unprivileged.
+
+This is not a production scheduler:
+
+- No leases, stale-worker recovery, automatic job retries or advanced scheduling.
+- Network errors retry; failed jobs are not requeued.
+- Restart fails the worker's previous assignment without replay.
+- Lost VMs or shutdown reports can leave jobs running.
+- Execution is not exactly-once. Worker results are not durably buffered.

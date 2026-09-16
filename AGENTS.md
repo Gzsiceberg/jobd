@@ -6,5 +6,6 @@
 
 ## Python Scripts
 
-- Use `uv run` to run all Python scripts, including in documentation, tests, and CI; do not invoke scripts with `python` or `python3` directly.
-- Every Python script must include a `#!/usr/bin/env -S uv run --script` shebang and PEP 723 inline metadata declaring `requires-python` and `dependencies` (use `[]` when no dependencies are needed).
+- Run Python scripts with `uv run`, including in docs, tests and CI. Never use `python` or `python3` directly.
+- Every script needs the `#!/usr/bin/env -S uv run --script` shebang.
+- Include PEP 723 metadata: `requires-python` and `dependencies`. Use `[]` for no dependencies.
