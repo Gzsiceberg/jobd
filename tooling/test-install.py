@@ -57,6 +57,15 @@ esac
         (fake / "uname").write_text('''#!/bin/sh
 case "$1" in -s) printf '%s\\n' "$JOBD_TEST_OS" ;; -m) printf '%s\\n' "$JOBD_TEST_ARCH" ;; *) exit 1 ;; esac
 ''')
+        (fake / "systemctl").write_text('''#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$JOBD_TEST_SYSTEMCTL_LOG"
+[ "$1" = --user ]
+[ "$2" != "${JOBD_TEST_SYSTEMCTL_FAIL:-}" ] || exit 1
+if [ "$2" = import-environment ]; then
+    printf '%s\\n' "${JOBD_API_KEY:-}" > "$JOBD_TEST_IMPORTED_KEY"
+fi
+''')
         actual_mv = shutil.which("mv")
         (fake / "mv").write_text(f'''#!/bin/sh
 if [ "${{JOBD_TEST_MV_FAIL:-0}}" = 1 ] && [ ! -e "$JOBD_TEST_FAIL_MARKER" ]; then
@@ -65,12 +74,17 @@ if [ "${{JOBD_TEST_MV_FAIL:-0}}" = 1 ] && [ ! -e "$JOBD_TEST_FAIL_MARKER" ]; the
   */.jobd-stage.*/jobd-worker) touch "$JOBD_TEST_FAIL_MARKER"; exit 1 ;;
  esac
 fi
+if [ "${{JOBD_TEST_UNIT_MV_FAIL:-0}}" = 1 ]; then
+ case "$2" in */.jobd-unit.*) exit 1 ;; esac
+fi
 exec '{actual_mv}' "$@"
 ''')
         for file in fake.iterdir():
             file.chmod(0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith("JOBD_")}
-        env.update({"HOME": str(home), "PATH": str(fake) + os.pathsep + os.environ["PATH"],
+        env.update({"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"),
+                    "JOBD_TEST_SYSTEMCTL_LOG": str(root / "systemctl.log"),
+                    "JOBD_TEST_IMPORTED_KEY": str(root / "imported-key"), "PATH": str(fake) + os.pathsep + os.environ["PATH"],
                     "JOBD_TEST_TAG": TAG, "JOBD_TEST_ASSETS": str(assets),
                     "JOBD_TEST_GH_LOG": str(root / "gh.log"), "JOBD_TEST_OS": "Linux",
                     "JOBD_TEST_ARCH": platform.machine(), "JOBD_TEST_FAIL_MARKER": str(root / "mv-failed")})
@@ -93,6 +107,7 @@ exec '{actual_mv}' "$@"
         run(install, success=False, extra={"JOBD_TEST_OS": "Darwin"})
         run(install, success=False, extra={"JOBD_TEST_ARCH": "riscv64"})
         run(install, success=False, extra={"JOBD_TEST_GH_FAIL": "1"})
+        run(install, success=False, extra={"JOBD_TEST_SYSTEMCTL_FAIL": "show-environment"})
         check(not (home / ".local/bin").exists(), "failed downloads/validation created an installation")
         print("PASS help, validation, unsupported platforms, authentication failure", flush=True)
 
@@ -100,7 +115,15 @@ exec '{actual_mv}' "$@"
         state = home / ".local/state/jobd-worker"
         state.mkdir(parents=True)
         (state / "worker-id").write_text("preserve-worker-identity")
-        run(install, pipe=True)
+        run(install, pipe=True, extra={"JOBD_API_KEY": "test-secret"})
+        unit = home / ".config/systemd/user/jobd-worker.service"
+        unit_before = unit.read_bytes()
+        check(f'ExecStart="{bins}/jobd-worker"' in unit.read_text(), "wrong service binary path")
+        check("test-secret" not in unit.read_text(), "secret persisted in unit")
+        check((root / "imported-key").read_text().strip() == "test-secret", "key not imported")
+        calls = (root / "systemctl.log").read_text()
+        check("--user enable jobd-worker.service" in calls and "--user restart jobd-worker.service" in calls, "service not enabled/started")
+        check("test-secret" not in calls, "secret passed as command argument")
         for name in ["jobd", "jobd-worker", "jobd-uninstall"]:
             check((bins / name).stat().st_mode & 0o777 == 0o755, "wrong executable mode")
         for name in ["jobd", "jobd-worker"]:
@@ -125,6 +148,22 @@ exec '{actual_mv}' "$@"
         run(install, "--version", TAG, success=False, extra={"JOBD_TEST_MV_FAIL": "1"})
         check(before == {file.name: file.read_bytes() for file in bins.iterdir() if file.is_file()}, "failed install did not roll back")
         check(not (bins / ".jobd-install.lock").exists(), "lock leaked")
+        check(unit.read_bytes() == unit_before, "rollback changed service")
+        run(install, success=False, extra={"JOBD_TEST_UNIT_MV_FAIL": "1"})
+        check(unit.read_bytes() == unit_before, "unit replacement failure did not restore service")
+        check(before == {file.name: file.read_bytes() for file in bins.iterdir() if file.is_file()}, "unit failure did not restore binaries/manifest")
+        check((root / "imported-key").read_text().strip() == "", "missing key did not clear imported key")
+        unit.write_text("locally modified unit")
+        run(install, success=False)
+        run(uninstall, success=False)
+        check((bins / "jobd").exists(), "modified service caused partial uninstall")
+        unit.write_bytes(unit_before)
+        run(uninstall, success=False, extra={"JOBD_TEST_SYSTEMCTL_FAIL": "stop"})
+        check(unit.exists() and (bins / "jobd").exists(), "stop failure removed files")
+        run(install, success=False, extra={"JOBD_TEST_SYSTEMCTL_FAIL": "restart"})
+        check(unit.exists() and (bins / ".jobd-install.sha256").exists(), "restart failure lost tracked installation")
+        run(install)
+
         print("PASS explicit version, upgrade/downgrade, reinstall and rollback on replacement failure", flush=True)
 
         (bins / "jobd").write_bytes(b"locally modified")
@@ -136,13 +175,24 @@ exec '{actual_mv}' "$@"
         (bins / "unrelated").write_text("keep")
         run(bins / "jobd-uninstall")
         check(not (bins / "jobd").exists() and not (bins / "jobd-worker").exists(), "binaries not removed")
+        check(not unit.exists(), "service unit not removed")
+        calls = (root / "systemctl.log").read_text()
+        check("--user stop jobd-worker.service" in calls and "--user disable jobd-worker.service" in calls, "service not stopped/disabled")
         check((state / "worker-id").read_text() == "preserve-worker-identity", "uninstall deleted worker state")
         check((bins / "unrelated").read_text() == "keep", "uninstall deleted unrelated files")
         run(uninstall)
         print("PASS modified-file protection, uninstall, repeated uninstall, state preservation", flush=True)
 
         custom = root / "custom bin"
+        unit.write_text("unmanaged service")
+        run(install, "--bin-dir", str(custom), success=False)
+        check(unit.read_text() == "unmanaged service", "unmanaged unit overwritten")
+        unit.unlink()
+        unit.symlink_to(bins / "unrelated")
+        run(install, "--bin-dir", str(custom), success=False)
+        unit.unlink()
         run(install, "--bin-dir", str(custom), "--version", TAG)
+        check(f'ExecStart="{custom}/jobd-worker"' in unit.read_text(), "custom service path not quoted")
         run(custom / "jobd-uninstall")  # Must infer its own custom installation directory.
         check(not (custom / "jobd").exists(), "custom uninstall used the wrong directory")
         (custom / "jobd").write_text("not ours")
@@ -181,6 +231,13 @@ exec '{actual_mv}' "$@"
         archive.write_bytes(original)
         (assets / "SHA256SUMS").write_text(sums)
         print("PASS checksum mismatch, archive traversal and link rejection", flush=True)
+
+        special = root / ('special % $ " ' + chr(92) + ' bin')
+        run(install, "--bin-dir", str(special))
+        quoted = str(special / "jobd-worker").replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"').replace('%', '%%').replace('$', '$$')
+        check(f'ExecStart="{quoted}"' in unit.read_text(), "systemd metacharacters not escaped")
+        run(special / "jobd-uninstall")
+        print("PASS systemd ExecStart escaping", flush=True)
 
         arm = root / "arm-bin"
         run(install, "--bin-dir", str(arm), extra={"JOBD_TEST_ARCH": "aarch64"})

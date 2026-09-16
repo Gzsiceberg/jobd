@@ -23,4 +23,4 @@ Job lifecycle: `queued → running → succeeded | failed`.
 | [Development](docs/development.md) | Local setup, checks and end-to-end tests |
 | [Releases](docs/releases.md) | Packaging and publishing GitHub releases |
 
-**Security:** There is no controller authentication or execution sandbox. Keep controller access protected and run workers as unprivileged users. See [deployment and limits](controller/README.md#deployment-and-limits).
+**Security:** All controller routes require the shared `JOBD_API_KEY` (set it in the controller, CLI and worker environments). There is no execution sandbox. Use HTTPS, keep the key private and run workers as unprivileged users. See [deployment and limits](controller/README.md#deployment-and-limits).
