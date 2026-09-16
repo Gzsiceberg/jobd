@@ -75,6 +75,17 @@ func envDefault(name, fallback string) string {
 }
 
 func run(config Config) error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return runWithContext(ctx, config)
+}
+
+func runWithContext(ctx context.Context, config Config) error {
+	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == "" {
+		slog.Info("Waiting for JOBD_API_KEY; restart worker with the environment variable set")
+		<-ctx.Done()
+		return nil
+	}
 	client, err := NewControllerClient(config.Controller, "", config.Queue, config.PollInterval)
 	if err != nil {
 		return err
@@ -91,8 +102,6 @@ func run(config Config) error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	worker := Worker{
 		client: client, hostname: hostname,
 		pollInterval: config.PollInterval, heartbeatInterval: config.HeartbeatInterval,

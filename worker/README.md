@@ -21,9 +21,22 @@ cd worker
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o jobd-worker .
 ```
 
-Release-installed binaries can be invoked as `jobd-worker`. The installer **does not register or start a background service**; you must run the worker yourself. See [installation](../docs/installation.md).
+The release installer sets up, enables and starts `jobd-worker.service` for the current user. Set `JOBD_API_KEY` in the installer environment, or the worker will wait idle. See [installation](../docs/installation.md).
 
 ## Configuration and identity
+
+Set `JOBD_API_KEY` in the worker's environment to the controller's shared key. Every API request includes it as a Bearer token. Without a key, the worker stays idle without contacting the controller and can still be stopped normally. Restart with `JOBD_API_KEY` set to resume; changing another shell's environment cannot update a running worker. No key file is used. With the user service below, `jobd --restart` imports the CLI environment and restarts the worker. Use HTTPS outside localhost.
+
+### systemd user service
+
+The [release installer](../docs/installation.md) generates, enables and starts the user service automatically, including custom binary paths. To update its environment and restart:
+
+```sh
+export JOBD_API_KEY='your-controller-key'
+jobd --restart
+```
+
+For source builds, run the worker directly or create your own user service. Stop any manually launched worker using the same state directory first. View logs with `journalctl --user -u jobd-worker.service` and stop with `systemctl --user stop jobd-worker.service`. Restart cancels active work and gives the worker up to 30 seconds to shut down. After the systemd user manager restarts (for example, after reboot), import the key again with `jobd --restart`; otherwise the service waits for configuration. The release uninstaller stops and removes the service it manages, while preserving state and logs.
 
 The worker stores its ID in `~/.local/state/jobd-worker`. Use `--state-dir PATH` for separate daemons; never copy an identity to another VM.
 

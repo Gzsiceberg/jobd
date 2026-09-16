@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type WorkerRecord struct {
 }
 
 type ControllerClient struct {
+	apiKey        string
 	baseURL       string
 	workerID      string
 	http          *http.Client
@@ -41,6 +43,7 @@ func NewControllerClient(address, workerID, queue string, retryInterval time.Dur
 		return nil, fmt.Errorf("controller must be an HTTP(S) URL without a query or fragment")
 	}
 	return &ControllerClient{
+		apiKey:        strings.TrimSpace(os.Getenv("JOBD_API_KEY")),
 		baseURL:       strings.TrimRight(address, "/") + "/queues/" + queue,
 		workerID:      workerID,
 		retryInterval: retryInterval,
@@ -109,6 +112,9 @@ func (c *ControllerClient) workerPath(action string) string {
 // post is the only retry layer. Calls keep their original payload until accepted,
 // stopped, or rejected permanently. The controller's mutations are retry-safe.
 func (c *ControllerClient) post(ctx context.Context, path string, body, output any) error {
+	if c.apiKey == "" {
+		return fmt.Errorf("JOBD_API_KEY is required")
+	}
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -137,6 +143,7 @@ func (c *ControllerClient) postOnce(ctx context.Context, path string, payload []
 		return false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	response, err := c.http.Do(req)
 	if err != nil {
 		return true, err
