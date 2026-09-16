@@ -378,6 +378,7 @@ def main():
             local_state = directory / "worker-local"
             remote_marker = directory / "remote-first"
             env["JOBD_STATE_DIR"] = str(local_state)
+            env["JOBD_LOCAL_PERSIST"] = "true"
             local_options = ("--local",)
             call(*local_options, "echo", "worker is stopped", success=False)
             remote_id = submit("touch", str(remote_marker))
@@ -440,6 +441,7 @@ def main():
             print("PASS persistent local submission, controller priority, real 30-second idle delay, local progress/cancel/reorder/default IDs/output and key filtering", flush=True)
             # No credentials: both binaries automatically select local-only mode.
             env.pop("JOBD_API_KEY")
+            env.pop("JOBD_LOCAL_PERSIST")
             env["JOBD_CONTROLLER"] = "invalid-unused-controller"
             no_key_state = directory / "worker-no-key"
             env["JOBD_STATE_DIR"] = str(no_key_state)
@@ -460,11 +462,13 @@ def main():
             check(no_key_worker.returncode == 0, "no-key worker shutdown failed")
             no_key_worker = start("worker-no-key-restarted", [str(worker), "--poll-interval", "0.1"], ROOT)
             eventually("restarted no-key socket", lambda: (no_key_state / "local/control.sock").exists())
-            check(no_key_id in call("-l").stdout, "no-key restart lost persisted job")
+            check(len(call("-l").stdout.splitlines()) == 1, "memory queue survived restart")
+            check(not (no_key_state / "local/queue.db").exists(), "memory queue created a database file")
+            check(Path(path).read_text() == "no-key-output\n", "restart removed output log")
             call("-C")
             stop(no_key_worker)
             check(no_key_worker.returncode == 0, "restarted no-key worker shutdown failed")
-            print("PASS automatic local-only mode without API key, listing warning, immediate execution, output and restart persistence", flush=True)
+            print("PASS automatic local-only mode without API key, listing warning, immediate execution, output and memory-only restart", flush=True)
             print("All real controller/worker/CLI end-to-end checks passed.", flush=True)
         except BaseException:
             try:

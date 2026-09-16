@@ -6,7 +6,7 @@
 
 Supports Linux **amd64** and **arm64**. Go and Node.js are not required on the destination host. A running systemd user manager is required (run from a user login session). Install `curl`, GNU `tar`, and standard coreutils (`sha256sum`). No GitHub account or token is needed once the repository and release are public.
 
-After the first release has been published, install both binaries and the user service. Export `JOBD_API_KEY`, `JOBD_CONTROLLER`, `JOBD_QUEUE` and optionally `JOBD_STATE_DIR` before installation to configure the worker. Without a key, the service runs local jobs only, without the controller idle delay. The CLI automatically uses the local queue and warns on listing to set `JOBD_API_KEY` and run `jobd --restart` to enable controller jobs.
+After the first release has been published, install both binaries and the user service. Export `JOBD_API_KEY`, `JOBD_CONTROLLER`, `JOBD_QUEUE` and optionally `JOBD_STATE_DIR` and `JOBD_LOCAL_PERSIST` before installation to configure the worker. The local queue is memory-only by default; set `JOBD_LOCAL_PERSIST=true` to preserve jobs across worker restarts. Without a key, the service runs local jobs only, without the controller idle delay. The CLI automatically uses the local queue and warns on listing to set `JOBD_API_KEY` and run `jobd --restart` to enable controller jobs.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Gzsiceberg/jobd/main/install.sh | sh

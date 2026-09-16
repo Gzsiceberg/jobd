@@ -43,7 +43,7 @@ func TestIdleWindow(t *testing.T) {
 
 func TestControllerPriorityAndNonPreemptiveLocalJobs(t *testing.T) {
 	dir := t.TempDir()
-	q, err := openLocalQueue(dir)
+	q, err := openLocalQueue(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}

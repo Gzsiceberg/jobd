@@ -21,9 +21,9 @@ target the latest source/release; older versions have no maintenance guarantee.
 - Local fallback submissions use an owner-only Unix socket served by the worker,
   not the controller API. The CLI never directly reads/writes queue files. Treat
   anyone who can access the socket or write the worker's state directory as
-  authorized to execute commands. Pending commands and
-  their results are persisted there; do not store secrets in
-  command arguments. Local jobs have the same unsandboxed privileges as remote
+  authorized to execute commands. With `JOBD_LOCAL_PERSIST=true`, pending commands and
+  their results are persisted there; the default queue is memory-only, but output
+  logs still reside on disk. Do not store secrets in command arguments. Local jobs have the same unsandboxed privileges as remote
   jobs.
 - The installer and `jobd --restart` import configuration into the systemd user
   manager's environment. Other user services may inherit it. Use a dedicated

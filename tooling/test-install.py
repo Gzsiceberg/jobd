@@ -69,6 +69,7 @@ printf '%s\\n' "$*" >> "$JOBD_TEST_SYSTEMCTL_LOG"
 [ "$2" != "${JOBD_TEST_SYSTEMCTL_FAIL:-}" ] || exit 1
 if [ "$2" = import-environment ]; then
     printf '%s\\n' "${JOBD_API_KEY:-}" > "$JOBD_TEST_IMPORTED_KEY"
+    printf '%s\\n' "$JOBD_LOCAL_PERSIST" > "$JOBD_TEST_IMPORTED_KEY.persist"
 fi
 ''')
         actual_mv = shutil.which("mv")
@@ -121,12 +122,13 @@ exec '{actual_mv}' "$@"
         state = home / ".local/state/jobd-worker"
         state.mkdir(parents=True)
         (state / "worker-id").write_text("preserve-worker-identity")
-        run(install, pipe=True, extra={"JOBD_API_KEY": "test-secret"})
+        run(install, pipe=True, extra={"JOBD_API_KEY": "test-secret", "JOBD_LOCAL_PERSIST": "true"})
         unit = home / ".config/systemd/user/jobd-worker.service"
         unit_before = unit.read_bytes()
         check(f'ExecStart="{bins}/jobd-worker"' in unit.read_text(), "wrong service binary path")
         check("test-secret" not in unit.read_text(), "secret persisted in unit")
         check((root / "imported-key").read_text().strip() == "test-secret", "key not imported")
+        check((root / "imported-key.persist").read_text().strip() == "true", "persistence setting not imported")
         calls = (root / "systemctl.log").read_text()
         check("--user enable jobd-worker.service" in calls and "--user restart jobd-worker.service" in calls, "service not enabled/started")
         check("test-secret" not in calls, "secret passed as command argument")
@@ -162,6 +164,7 @@ exec '{actual_mv}' "$@"
         check(unit.read_bytes() == unit_before, "unit replacement failure did not restore service")
         check(before == {file.name: file.read_bytes() for file in bins.iterdir() if file.is_file()}, "unit failure did not restore binaries/manifest")
         check((root / "imported-key").read_text().strip() == "", "missing key did not clear imported key")
+        check((root / "imported-key.persist").read_text().strip() == "false", "unset persistence did not restore memory default")
         unit.write_text("locally modified unit")
         run(install, success=False)
         run(uninstall, success=False)

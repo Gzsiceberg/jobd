@@ -10,7 +10,7 @@ import (
 
 func testLocalQueue(t *testing.T) *localQueue {
 	t.Helper()
-	q, err := openLocalQueue(t.TempDir())
+	q, err := openLocalQueue(t.TempDir(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func queueJobs(t *testing.T, q *localQueue) []Job {
 
 func TestLocalQueuePersistence(t *testing.T) {
 	dir := t.TempDir()
-	q, err := openLocalQueue(dir)
+	q, err := openLocalQueue(dir, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestLocalQueuePersistence(t *testing.T) {
 	}
 	q.Output(context.Background(), a.ID, "/tmp/local.log")
 	q.Close()
-	q, err = openLocalQueue(dir)
+	q, err = openLocalQueue(dir, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestLocalQueuePersistence(t *testing.T) {
 	if err != nil || next.ID != "local-3" {
 		t.Fatalf("sequence: %+v %v", next, err)
 	}
-	info, err := os.Stat(q.path)
+	info, err := os.Stat(filepath.Join(q.dir, "queue.db"))
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("permissions: %v %v", info, err)
 	}
@@ -187,10 +187,10 @@ func TestLocalQueueValidation(t *testing.T) {
 		t.Fatal("clear removed unfinished jobs")
 	}
 	q.Close()
-	if err := os.WriteFile(q.path, []byte("not a database"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(q.dir, "queue.db"), []byte("not a database"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openLocalQueue(filepath.Dir(filepath.Dir(q.path))); err == nil {
+	if _, err := openLocalQueue(filepath.Dir(q.dir), true); err == nil {
 		t.Fatal("accepted corrupt database")
 	}
 }

@@ -19,8 +19,9 @@ func restartWorker(address, queue string, out, diagnostic io.Writer) error {
 		"JOBD_CONTROLLER=" + address,
 		"JOBD_QUEUE=" + queue,
 		"JOBD_STATE_DIR=" + env("JOBD_STATE_DIR", "~/.local/state/jobd-worker"),
+		"JOBD_LOCAL_PERSIST=" + env("JOBD_LOCAL_PERSIST", "false"),
 	}
-	names := []string{"JOBD_API_KEY", "JOBD_CONTROLLER", "JOBD_QUEUE", "JOBD_STATE_DIR"}
+	names := []string{"JOBD_API_KEY", "JOBD_CONTROLLER", "JOBD_QUEUE", "JOBD_STATE_DIR", "JOBD_LOCAL_PERSIST"}
 	environment := make([]string, 0, len(os.Environ())+len(settings))
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")

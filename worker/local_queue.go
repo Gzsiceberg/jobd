@@ -21,7 +21,7 @@ import (
 // reports, and transactions replace the old snapshot/copy/rename machinery.
 type localQueue struct {
 	db                 *sql.DB
-	path               string
+	dir                string
 	workerID, hostname string
 	cancel             func(string)
 }
@@ -30,7 +30,7 @@ const localColumns = `'local-' || sequence, status, command, created_at,
  started_at, finished_at, worker_id, hostname, output_path, exit_code,
  error, progress, cancel_requested`
 
-func openLocalQueue(stateDir string) (*localQueue, error) {
+func openLocalQueue(stateDir string, persist bool) (*localQueue, error) {
 	dir, err := filepath.Abs(filepath.Join(stateDir, "local"))
 	if err != nil {
 		return nil, err
@@ -41,30 +41,36 @@ func openLocalQueue(stateDir string) (*localQueue, error) {
 	if err := os.Chmod(dir, 0700); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, "queue.db")
-	// SQLite inherits these permissions; the private directory also protects journals.
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("local database must be a regular file")
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+	dsn := ":memory:"
+	if persist {
+		path := filepath.Join(dir, "queue.db")
+		// The private directory also protects SQLite journals.
+		if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("local database must be a regular file")
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			return nil, err
+		}
+		if err := file.Close(); err != nil {
+			return nil, err
+		}
+		if err := os.Chmod(path, 0600); err != nil {
+			return nil, err
+		}
+		uri := url.URL{Scheme: "file", Path: path}
+		dsn = uri.String()
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	if err := file.Close(); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(path, 0600); err != nil {
-		return nil, err
-	}
-	uri := url.URL{Scheme: "file", Path: path}
-	db, err := sql.Open("sqlite", uri.String())
-	if err != nil {
-		return nil, err
-	}
+	// Keep one connection alive: a :memory: database belongs to that connection.
 	db.SetMaxOpenConns(1)
-	q := &localQueue{db: db, path: path}
+	db.SetMaxIdleConns(1)
+	q := &localQueue{db: db, dir: dir}
 	_, err = db.Exec(`PRAGMA busy_timeout=5000;
  PRAGMA synchronous=FULL;
  CREATE TABLE IF NOT EXISTS jobs (

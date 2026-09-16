@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ type Config struct {
 	Controller        string
 	Queue             string
 	StateDir          string
+	LocalPersist      bool
 	PollInterval      time.Duration
 	HeartbeatInterval time.Duration
 }
@@ -40,6 +42,9 @@ func parseConfig(args []string, output io.Writer) (Config, error) {
 		return config, fmt.Errorf("unexpected positional arguments: %v", flags.Args())
 	}
 	var err error
+	if config.LocalPersist, err = strconv.ParseBool(envDefault("JOBD_LOCAL_PERSIST", "false")); err != nil {
+		return config, fmt.Errorf("JOBD_LOCAL_PERSIST must be a boolean: %w", err)
+	}
 	if config.PollInterval, err = positiveSeconds(*poll); err != nil {
 		return config, fmt.Errorf("poll-interval: %w", err)
 	}
@@ -105,7 +110,7 @@ func runWithContext(ctx context.Context, config Config) error {
 		return err
 	}
 
-	local, err := openLocalQueue(config.StateDir)
+	local, err := openLocalQueue(config.StateDir, config.LocalPersist)
 	if err != nil {
 		return err
 	}

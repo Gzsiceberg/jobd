@@ -22,7 +22,7 @@ type localSocket struct {
 
 // The daemon lock protects this stable socket; only the worker opens the database.
 func openLocalSocket(ctx context.Context, q *localQueue) (*localSocket, error) {
-	path := filepath.Join(filepath.Dir(q.path), "control.sock")
+	path := filepath.Join(q.dir, "control.sock")
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
 			return nil, fmt.Errorf("refusing to replace non-socket: %s", path)

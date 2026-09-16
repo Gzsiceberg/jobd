@@ -209,8 +209,9 @@ JOBD_API_KEY=${JOBD_API_KEY:-}
 JOBD_CONTROLLER=${JOBD_CONTROLLER:-https://jobd-controller.aflashsheng.workers.dev}
 JOBD_QUEUE=${JOBD_QUEUE:-default}
 JOBD_STATE_DIR=${JOBD_STATE_DIR:-$HOME/.local/state/jobd-worker}
-export JOBD_API_KEY JOBD_CONTROLLER JOBD_QUEUE JOBD_STATE_DIR
-systemctl --user import-environment JOBD_API_KEY JOBD_CONTROLLER JOBD_QUEUE JOBD_STATE_DIR \
+JOBD_LOCAL_PERSIST=${JOBD_LOCAL_PERSIST:-false}
+export JOBD_API_KEY JOBD_CONTROLLER JOBD_QUEUE JOBD_STATE_DIR JOBD_LOCAL_PERSIST
+systemctl --user import-environment JOBD_API_KEY JOBD_CONTROLLER JOBD_QUEUE JOBD_STATE_DIR JOBD_LOCAL_PERSIST \
     || fail 'installed files, but environment import failed; rerun the installer'
 systemctl --user enable jobd-worker.service || fail 'installed files, but service enable failed; rerun the installer'
 systemctl --user restart jobd-worker.service || fail 'installed files, but service restart failed; inspect journalctl --user -u jobd-worker.service'

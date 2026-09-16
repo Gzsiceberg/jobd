@@ -15,7 +15,7 @@ import (
 
 func TestLocalSocket(t *testing.T) {
 	q := testLocalQueue(t)
-	path := filepath.Join(filepath.Dir(q.path), "control.sock")
+	path := filepath.Join(q.dir, "control.sock")
 	stale, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestLocalSocket(t *testing.T) {
 
 func TestLocalSocketPreservesFile(t *testing.T) {
 	q := testLocalQueue(t)
-	path := filepath.Join(filepath.Dir(q.path), "control.sock")
+	path := filepath.Join(q.dir, "control.sock")
 	os.WriteFile(path, []byte("keep"), 0600)
 	if socket, err := openLocalSocket(context.Background(), q); err == nil {
 		socket.Close()

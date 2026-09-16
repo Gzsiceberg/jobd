@@ -22,7 +22,7 @@ func TestMissingAPIKeyRunsLocalJobs(t *testing.T) {
 			defer server.Close()
 			stateDir := filepath.Join(t.TempDir(), "state")
 			marker := filepath.Join(t.TempDir(), "executed")
-			q, err := openLocalQueue(stateDir)
+			q, err := openLocalQueue(stateDir, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -34,7 +34,7 @@ func TestMissingAPIKeyRunsLocalJobs(t *testing.T) {
 			defer cancel()
 			done := make(chan error, 1)
 			go func() {
-				done <- runWithContext(ctx, Config{Controller: server.URL, Queue: "default", StateDir: stateDir, PollInterval: time.Millisecond})
+				done <- runWithContext(ctx, Config{Controller: server.URL, Queue: "default", StateDir: stateDir, LocalPersist: true, PollInterval: time.Millisecond})
 			}()
 			transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(stateDir, "local", "control.sock"))
@@ -75,7 +75,7 @@ func TestMissingAPIKeyRunsLocalJobs(t *testing.T) {
 			if requests.Load() != 0 {
 				t.Fatal("sent unauthenticated requests")
 			}
-			q, err = openLocalQueue(stateDir)
+			q, err = openLocalQueue(stateDir, true)
 			if err != nil {
 				t.Fatal(err)
 			}

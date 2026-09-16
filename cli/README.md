@@ -30,7 +30,7 @@ export JOBD_API_KEY='your-controller-key'
 jobd --restart
 ```
 
-This imports `JOBD_API_KEY`, the selected controller and queue (including CLI flags), and `JOBD_STATE_DIR` (or its default) into the systemd user manager, then runs `systemctl --user restart jobd-worker.service`. No controller API request is made. An unset key clears the imported key and starts the replacement worker in local-only mode. Restarting cancels any running job; it does not replay it.
+This imports `JOBD_API_KEY`, the selected controller and queue (including CLI flags), `JOBD_STATE_DIR` (or its default), and `JOBD_LOCAL_PERSIST` (default `false`) into the systemd user manager, then runs `systemctl --user restart jobd-worker.service`. No controller API request is made. An unset key clears the imported key and starts the replacement worker in local-only mode. Restarting cancels any running job; it does not replay it.
 
 The environment remains in the user manager's memory and may be inherited by other user services; use a dedicated worker account where appropriate. It is not persisted across user-manager restarts. Unit-level environment overrides take precedence, so do not set these variables in the service unit if you want CLI environment updates to apply.
 
@@ -66,11 +66,11 @@ jobd --local -U local-1 local-2  # swap two queued jobs
 jobd --local -C             # clear finished records, keeping output files
 ```
 
-The CLI reuses its HTTP client over the worker's owner-only Unix-domain socket, without TCP or an API key. Only the worker reads/writes the persistent queue. Local jobs use the worker's working directory and environment, just like controller jobs. Commands are argv arrays; use `sh -c` explicitly for shell syntax.
+The CLI reuses its HTTP client over the worker's owner-only Unix-domain socket, without TCP or an API key. Only the worker accesses the queue, which uses in-memory SQLite by default. Local jobs use the worker's working directory and environment, just like controller jobs. Commands are argv arrays; use `sh -c` explicitly for shell syntax.
 
 The worker checks the controller first. After 30 seconds since the first empty controller poll, it may start the next local job. A local job runs to completion even if controller work arrives meanwhile. Controller request failures do not reset the idle timer. A successful empty claim is still required before starting local work, so retries block execution while the controller is unreachable. Without `JOBD_API_KEY`, the worker instead runs local jobs without the idle delay or any controller requests. The CLI also selects local mode automatically when its key is missing; `--local` still selects local jobs when a key is configured.
 
-Set `JOBD_STATE_DIR` to match the worker's state directory (default `~/.local/state/jobd-worker`). Pending jobs persist across restarts. Submission, listing and management require the worker to be running with its API key configured; the CLI reports a connection error if it is stopped. There is one local queue per state directory; `--queue` and `--controller` do not select it. Jobs left running after a restart are marked failed, never replayed automatically.
+Set `JOBD_STATE_DIR` to match the worker's state directory (default `~/.local/state/jobd-worker`). By default, restart discards queued jobs and history, but not output log files. To persist the queue, export `JOBD_LOCAL_PERSIST=true` and run `jobd --restart`. Submission, listing and management require the worker to be running; an API key is not required. The CLI reports a connection error if the worker is stopped. There is one local queue per state directory; `--queue` and `--controller` do not select it. In persistent mode, jobs left running after a restart are marked failed, never replayed automatically. Switching storage modes does not migrate jobs; memory mode ignores and preserves any existing database.
 
 Local jobs use the same job model, actions, defaults, listing columns and progress/cancellation behavior as controller jobs. They have `local-N` IDs and do not appear in controller listings. Progress is reported over the same per-job socket and saved locally, not sent to the controller. Output stays in the worker's `/tmp` logs. A normal worker shutdown cancels the local process group and records failure.
 
