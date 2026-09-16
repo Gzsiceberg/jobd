@@ -1,8 +1,24 @@
 # jobd
 
-A small pull-based job scheduler: submit commands to named queues, then execute them on remote Linux workers.
+**Queue jobs once. Run them across your machines.**
+
+jobd distributes commands across remote Linux instances. Submit jobs to a shared queue; available workers pick them up, one job at a time.
 
 **Experimental — trusted workloads only.** Not designed for untrusted multi-tenant hosting. See [Security](SECURITY.md).
+
+## Why I built it
+
+I run ML training jobs on RunPod and Vast.ai, with metrics tracked in W&B. Launching jobs across instances was still a hassle. `tsp` (Task Spooler) works well on one machine; I wanted that simplicity across many.
+
+**CLI-first, not a UI:** agents can submit, inspect, and cancel jobs through commands, without navigating a dashboard.
+
+## When should you use it?
+
+Use jobd when you have multiple prepared instances and independent training runs or batch tasks to distribute—without SSHing into each machine to launch them.
+
+You provide the machines, code, and data. jobd dispatches jobs; it does not provision GPUs, match hardware requirements, or coordinate distributed training. For one machine, `tsp` may be enough.
+
+## How it works
 
 ```text
 jobd CLI → Cloudflare Controller ← Worker → Local Process
