@@ -1,0 +1,46 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: worker/go.mod
+          cache: false
+      - uses: astral-sh/setup-uv@v6
+      - name: Install controller dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Check controller
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+      - name: Check CLI and worker
+        run: |
+          (cd cli && go test -race ./... && go vet ./...)
+          (cd worker && go test -race ./... && go vet ./...)
+          test -z "$(gofmt -l cli/*.go worker/*.go)"
+      - name: Test local end-to-end flow
+        run: uv run tooling/e2e.py
+      - name: Test public installer and uninstaller
+        run: uv run tooling/test-install.py

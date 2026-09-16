@@ -1,17 +1,22 @@
 #!/bin/sh
-# Private GitHub release installer. Requires authenticated gh; never uses sudo.
+# Public GitHub release installer. Uses HTTPS curl downloads; never uses sudo.
 set -eu
 
 repo=${JOBD_REPO:-Gzsiceberg/jobd}
 version=${JOBD_VERSION:-latest}
 bin_dir=${JOBD_BIN_DIR:-${HOME:?HOME must be set}/.local/bin}
 manifest=.jobd-install.sha256
-files='jobd jobd-worker jobd-uninstall'
+files='jobd jobd-worker jobd-uninstall jobd-LICENSE'
+archive_files='jobd jobd-worker jobd-uninstall LICENSE'
+download() {
+    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+        --retry 3 --connect-timeout 15 --max-time 120 "$@"
+}
 fail() { printf 'jobd install: %s\n' "$*" >&2; exit 1; }
 usage() {
     printf '%s\n' 'Usage: sh install.sh [--version vX.Y.Z] [--bin-dir DIR]' \
         'Defaults: latest release, ~/.local/bin; JOBD_REPO can select a fork.' \
-        'Requires gh authentication and a running systemd user manager.' \
+        'Requires curl and a running systemd user manager; no GitHub login needed.' \
         'Installs, enables and restarts jobd-worker.service for the current user.'
 }
 while [ "$#" -gt 0 ]; do
@@ -24,7 +29,7 @@ while [ "$#" -gt 0 ]; do
         *) fail "unknown argument: $1" ;;
     esac
 done
-for tool in gh tar sha256sum mktemp awk grep systemctl; do
+for tool in curl tar sha256sum mktemp awk grep systemctl; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing $tool (install prerequisites first)"
 done
 [ "$(uname -s)" = Linux ] || fail 'only Linux is supported (the worker requires Linux)'
@@ -38,7 +43,9 @@ case "$(uname -m)" in
 esac
 printf '%s\n' "$repo" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || fail 'invalid JOBD_REPO'
 if [ "$version" = latest ]; then
-    version=$(gh release view --repo "$repo" --json tagName --jq .tagName) || fail 'cannot find latest release; check gh auth status and release availability'
+    release_url=$(download --output /dev/null --write-out '%{url_effective}' "https://github.com/$repo/releases/latest") \
+        || fail 'cannot find latest public release; check repository visibility and release availability'
+    version=${release_url##*/}
 fi
 printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$' || fail 'version must be a release tag such as v0.1.0'
 asset="jobd_${version}_linux_${arch}.tar.gz"
@@ -89,22 +96,25 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-gh release download "$version" --repo "$repo" --pattern "$asset" --pattern SHA256SUMS --dir "$tmp" \
-    || fail 'release download failed; run gh auth login or check repository access'
+for name in "$asset" SHA256SUMS; do
+    download --output "$tmp/$name" "https://github.com/$repo/releases/download/$version/$name" \
+        || fail 'release download failed; check public release availability'
+done
 expected=$(awk -v name="$asset" '$2 == name { print $1 }' "$tmp/SHA256SUMS")
 printf '%s\n' "$expected" | grep -Eq '^[a-f0-9]{64}$' && [ "${#expected}" = 64 ] || fail 'missing or ambiguous release checksum'
 checksum() { sha256sum < "$1" | awk '{print $1}'; }
 [ "$(checksum "$tmp/$asset")" = "$expected" ] || fail 'release checksum mismatch; nothing installed'
 
-# Only these three regular files are allowed; reject paths and links before extraction.
+# Only the binaries, uninstaller and license are allowed; reject paths and links.
 listing=$(tar -tzf "$tmp/$asset") || fail 'invalid release archive'
-[ "$(printf '%s\n' "$listing" | LC_ALL=C sort)" = "$(printf '%s\n' $files | LC_ALL=C sort)" ] || fail 'unexpected files in release archive'
+[ "$(printf '%s\n' "$listing" | LC_ALL=C sort)" = "$(printf '%s\n' $archive_files | LC_ALL=C sort)" ] || fail 'unexpected files in release archive'
 tar -tvzf "$tmp/$asset" | awk 'substr($0,1,1) != "-" { bad=1 } END { exit bad }' || fail 'release archive contains non-regular files'
 mkdir "$tmp/unpacked"
 tar -xzf "$tmp/$asset" -C "$tmp/unpacked" --no-same-owner --no-same-permissions
-for name in $files; do
-    [ -f "$tmp/unpacked/$name" ] && [ ! -L "$tmp/unpacked/$name" ] || fail "invalid binary: $name"
+for name in $archive_files; do
+    [ -f "$tmp/unpacked/$name" ] && [ ! -L "$tmp/unpacked/$name" ] || fail "invalid release file: $name"
 done
+mv "$tmp/unpacked/LICENSE" "$tmp/unpacked/jobd-LICENSE"
 
 mkdir -p "$bin_dir"
 bin_dir=$(cd "$bin_dir" && pwd -P)
@@ -150,7 +160,7 @@ mkdir "$stage/backup"
 printf '# release: %s platform: linux/%s repository: %s\n' "$version" "$arch" "$repo" > "$stage/$manifest"
 for name in $files; do
     cp "$tmp/unpacked/$name" "$stage/$name"
-    chmod 755 "$stage/$name"
+    case "$name" in jobd-LICENSE) chmod 644 "$stage/$name" ;; *) chmod 755 "$stage/$name" ;; esac
     printf '%s  %s\n' "$(checksum "$stage/$name")" "$name" >> "$stage/$manifest"
 done
 # Quote ExecStart for systemd (not a shell), including literal % and $.

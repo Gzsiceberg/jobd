@@ -14,14 +14,19 @@ Requires Node.js 24 ([.nvmrc](../.nvmrc)), pnpm 12.4.1 and Go 1.27.1 or newer. W
 nvm install && nvm use     # if using nvm
 corepack enable
 pnpm install
+export JOBD_API_KEY="$(uv run tooling/generate-api-key.py)"
+(umask 077; printf 'JOBD_API_KEY=%s\n' "$JOBD_API_KEY" > controller/.dev.vars)
 pnpm dev                    # http://localhost:8787, local persistent SQLite
 ```
 
 ## Start a worker
 
-In another terminal:
+In another terminal, load the same local-only key (never use a production key for development):
 
 ```sh
+set -a
+. ./controller/.dev.vars
+set +a
 cd worker
 go build -o jobd-worker .
 ./jobd-worker --controller http://localhost:8787 --queue default
@@ -32,11 +37,14 @@ See the [worker guide](../worker/README.md) for configuration and lifecycle deta
 ## Submit and inspect a job
 
 ```sh
-curl -s http://localhost:8787/queues/default/jobs \
+# In a terminal with the same JOBD_API_KEY exported:
+curl -fsS http://localhost:8787/queues/default/jobs \
+  -H "Authorization: Bearer $JOBD_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"command":["echo","hello from jobd"]}'
 
-curl -s http://localhost:8787/queues/default/jobs/JOB_ID
+curl -fsS http://localhost:8787/queues/default/jobs/JOB_ID \
+  -H "Authorization: Bearer $JOBD_API_KEY"
 ```
 
 Or build and use the [jobd CLI](../cli/README.md).
@@ -68,7 +76,7 @@ From the repository root:
 uv run tooling/e2e.py
 ```
 
-Requires `uv`, Go, Node.js and installed pnpm dependencies. [The script](../tooling/e2e.py) declares its Python requirement and uses only the standard library. It builds temporary CLI/worker binaries, starts a real local Wrangler controller with isolated storage, and runs real workers.
+Requires `uv`, Go, Node.js and installed pnpm dependencies. [The script](../tooling/e2e.py) declares its Python requirement and uses only the standard library. It builds temporary CLI/worker binaries, starts a real local Wrangler controller with isolated storage and an ephemeral test key, and runs real workers. It verifies rejection of missing/incorrect credentials and authenticates all normal requests.
 
 It checks all CLI actions, default IDs, queue ordering through actual execution, output files, queue isolation, pagination and rejection of unsafe/invalid operations. Real Python jobs verify:
 

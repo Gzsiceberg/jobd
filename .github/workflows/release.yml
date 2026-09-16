@@ -32,7 +32,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: sh tooling/package-release.sh "$TAG" dist
-      - name: Publish private release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -40,10 +40,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Refuse to publish if repository visibility was accidentally changed.
-          test "$(gh repo view --json visibility --jq .visibility)" = PRIVATE
           flags=()
           if [[ "$TAG" == *-* ]]; then flags+=(--prerelease); fi
           gh release create "$TAG" dist/* --verify-tag --draft "${flags[@]}" \
-            --title "$TAG" --notes 'Standalone Linux amd64/arm64 jobd and jobd-worker binaries. Install with the authenticated install.sh; see README for instructions.'
+            --title "$TAG" --notes 'Standalone Linux amd64/arm64 jobd and jobd-worker binaries. MIT licensed. Install with install.sh; see README for instructions.'
           gh release edit "$TAG" --draft=false

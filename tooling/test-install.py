@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Build real release binaries and test shell installers with a fake private gh transport.
+"""Build real release binaries and test shell installers with a fake public curl transport.
 Run: uv run tooling/test-install.py. Never touches the real HOME or GitHub releases.
 """
 import hashlib
@@ -32,26 +32,30 @@ def main():
         for directory in [home, assets, fake]:
             directory.mkdir()
         subprocess.run(["sh", str(ROOT / "tooling/package-release.sh"), TAG, str(assets)], check=True)
-        (fake / "gh").write_text('''#!/bin/sh
+        (fake / "gh").write_text('#!/bin/sh\necho "gh must not be used" >&2\nexit 1\n')
+        (fake / "curl").write_text('''#!/bin/sh
 set -eu
-printf '%s\\n' "$*" >> "$JOBD_TEST_GH_LOG"
-[ "${JOBD_TEST_GH_FAIL:-0}" = 0 ] || exit 1
-[ "$1" = release ]; shift
-case "$1" in
- view) printf '%s\\n' "$JOBD_TEST_TAG" ;;
- download)
-  shift; tag=$1; shift
-  [ "$tag" = "$JOBD_TEST_TAG" ]
-  patterns=; dest=
-  while [ "$#" -gt 0 ]; do
-   case "$1" in
-    --repo) [ "$2" = Gzsiceberg/jobd ]; shift 2 ;;
-    --pattern) patterns="$patterns $2"; shift 2 ;;
-    --dir) dest=$2; shift 2 ;;
-    *) exit 1 ;;
-   esac
-  done
-  for pattern in $patterns; do cp "$JOBD_TEST_ASSETS/$pattern" "$dest/"; done ;;
+printf '%s\\n' "$*" >> "$JOBD_TEST_CURL_LOG"
+[ "${JOBD_TEST_CURL_FAIL:-0}" = 0 ] || exit 22
+output=; write_out=; protocols=0
+while [ "$#" -gt 0 ]; do
+ case "$1" in
+  --fail|--silent|--show-error|--location) shift ;;
+  --proto|--proto-redir) [ "$2" = '=https' ]; protocols=$((protocols + 1)); shift 2 ;;
+  --retry|--connect-timeout|--max-time) shift 2 ;;
+  --output) output=$2; shift 2 ;;
+  --write-out) write_out=$2; shift 2 ;;
+  https://github.com/*) url=$1; shift ;;
+  *) exit 1 ;;
+ esac
+done
+[ "$protocols" = 2 ]
+case "$url" in
+ https://github.com/Gzsiceberg/jobd/releases/latest)
+  [ "$output" = /dev/null ] && [ "$write_out" = '%{url_effective}' ]
+  printf 'https://github.com/Gzsiceberg/jobd/releases/tag/%s' "$JOBD_TEST_TAG" ;;
+ "https://github.com/Gzsiceberg/jobd/releases/download/$JOBD_TEST_TAG/"*)
+  cp "$JOBD_TEST_ASSETS/${url##*/}" "$output" ;;
  *) exit 1 ;;
 esac
 ''')
@@ -87,7 +91,7 @@ exec '{actual_mv}' "$@"
                     "JOBD_TEST_SYSTEMCTL_LOG": str(root / "systemctl.log"),
                     "JOBD_TEST_IMPORTED_KEY": str(root / "imported-key"), "PATH": str(fake) + os.pathsep + os.environ["PATH"],
                     "JOBD_TEST_TAG": TAG, "JOBD_TEST_ASSETS": str(assets),
-                    "JOBD_TEST_GH_LOG": str(root / "gh.log"), "JOBD_TEST_OS": "Linux",
+                    "JOBD_TEST_CURL_LOG": str(root / "curl.log"), "JOBD_TEST_OS": "Linux",
                     "JOBD_TEST_ARCH": platform.machine(), "JOBD_TEST_FAIL_MARKER": str(root / "mv-failed")})
 
         def run(script, *args, success=True, extra=None, pipe=False):
@@ -107,10 +111,11 @@ exec '{actual_mv}' "$@"
         run(install, "--version", "../../evil", success=False)
         run(install, success=False, extra={"JOBD_TEST_OS": "Darwin"})
         run(install, success=False, extra={"JOBD_TEST_ARCH": "riscv64"})
-        run(install, success=False, extra={"JOBD_TEST_GH_FAIL": "1"})
+        run(install, success=False, extra={"JOBD_TEST_CURL_FAIL": "1"})
+        run(install, success=False, extra={"JOBD_TEST_TAG": "not-a-version"})
         run(install, success=False, extra={"JOBD_TEST_SYSTEMCTL_FAIL": "show-environment"})
         check(not (home / ".local/bin").exists(), "failed downloads/validation created an installation")
-        print("PASS help, validation, unsupported platforms, authentication failure", flush=True)
+        print("PASS help, validation, unsupported platforms, download failure", flush=True)
 
         bins = home / ".local/bin"
         state = home / ".local/state/jobd-worker"
@@ -131,9 +136,11 @@ exec '{actual_mv}' "$@"
             result = subprocess.run([str(bins / name), "--help"], env=env, capture_output=True, timeout=10)
             check(result.returncode == 0, f"installed {name} cannot execute")
         native = "amd64" if platform.machine() in ("x86_64", "amd64") else "arm64"
-        check(f"jobd_{TAG}_linux_{native}.tar.gz" in (root / "gh.log").read_text(), "wrong architecture asset requested")
+        check(f"jobd_{TAG}_linux_{native}.tar.gz" in (root / "curl.log").read_text(), "wrong architecture asset requested")
         check(not (home / ".profile").exists(), "installer edited shell configuration")
-        print("PASS piped default install, authenticated asset selection, real binaries execute", flush=True)
+        check((bins / "jobd-LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes(), "installed license missing or incorrect")
+        check((bins / "jobd-LICENSE").stat().st_mode & 0o777 == 0o644, "wrong license mode")
+        print("PASS anonymous public downloads, bundled MIT license, real binaries execute", flush=True)
 
         before = {file.name: file.read_bytes() for file in bins.iterdir() if file.is_file()}
         next_tag = "v0.0.1-test"
@@ -167,6 +174,10 @@ exec '{actual_mv}' "$@"
 
         print("PASS explicit version, upgrade/downgrade, reinstall and rollback on replacement failure", flush=True)
 
+        (bins / "jobd-LICENSE").write_text("modified license")
+        run(install, success=False)
+        run(uninstall, success=False)
+        (bins / "jobd-LICENSE").write_bytes(before["jobd-LICENSE"])
         (bins / "jobd").write_bytes(b"locally modified")
         run(install, success=False)
         run(uninstall, success=False)
@@ -177,6 +188,7 @@ exec '{actual_mv}' "$@"
         run(bins / "jobd-uninstall")
         check(not (bins / "jobd").exists() and not (bins / "jobd-worker").exists(), "binaries not removed")
         check(not unit.exists(), "service unit not removed")
+        check(not (bins / "jobd-LICENSE").exists(), "managed license not removed")
         calls = (root / "systemctl.log").read_text()
         check("--user stop jobd-worker.service" in calls and "--user disable jobd-worker.service" in calls, "service not stopped/disabled")
         check((state / "worker-id").read_text() == "preserve-worker-identity", "uninstall deleted worker state")
@@ -216,9 +228,18 @@ exec '{actual_mv}' "$@"
         archive.write_bytes(original + b"tamper")
         run(install, "--bin-dir", str(custom), success=False)
         archive.write_bytes(original)
+        # A legacy archive without LICENSE is intentionally rejected.
+        with tarfile.open(fileobj=io.BytesIO(original), mode="r:gz") as source:
+            with tarfile.open(archive, "w:gz") as bundle:
+                for item in source.getmembers():
+                    if item.name != "LICENSE":
+                        bundle.addfile(item, source.extractfile(item))
+        (assets / "SHA256SUMS").write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name + "\n")
+        run(install, "--bin-dir", str(custom), success=False)
+        check(not (custom / "jobd").exists(), "archive without license was installed")
         for link in [False, True]:
             with tarfile.open(archive, "w:gz") as bundle:
-                for name in ["jobd", "jobd-worker", "jobd-uninstall"]:
+                for name in ["jobd", "jobd-worker", "jobd-uninstall", "LICENSE"]:
                     item = tarfile.TarInfo(name if link or name != "jobd" else "../escape")
                     if link and name == "jobd":
                         item.type, item.linkname = tarfile.SYMTYPE, str(bins / "unrelated")
@@ -239,6 +260,16 @@ exec '{actual_mv}' "$@"
         check(f'ExecStart="{quoted}"' in unit.read_text(), "systemd metacharacters not escaped")
         run(special / "jobd-uninstall")
         print("PASS systemd ExecStart escaping", flush=True)
+
+        # Uninstall still supports older manifests without a managed license.
+        run(install, "--bin-dir", str(custom))
+        manifest = custom / ".jobd-install.sha256"
+        manifest.write_text("\n".join(line for line in manifest.read_text().splitlines()
+                                    if not line.endswith("  jobd-LICENSE")) + "\n")
+        (custom / "jobd-LICENSE").write_text("unmanaged legacy file")
+        run(custom / "jobd-uninstall")
+        check((custom / "jobd-LICENSE").read_text() == "unmanaged legacy file", "legacy uninstall removed unrelated license")
+        print("PASS legacy manifest uninstall", flush=True)
 
         arm = root / "arm-bin"
         run(install, "--bin-dir", str(arm), extra={"JOBD_TEST_ARCH": "aarch64"})

@@ -2,40 +2,34 @@
 
 [Overview](../README.md) · [CLI](../cli/README.md) · [Worker](../worker/README.md) · [Publishing releases](releases.md)
 
-## Install from private GitHub releases
+## Install from public GitHub releases
 
-Supports Linux **amd64** and **arm64**. Go and Node.js are not required on the destination host. A running systemd user manager is required (run from a user login session). Install `gh`, GNU `tar`, and standard coreutils (`sha256sum`), then authenticate with an account that can read this private repository:
-
-```sh
-gh auth login
-gh auth status
-```
+Supports Linux **amd64** and **arm64**. Go and Node.js are not required on the destination host. A running systemd user manager is required (run from a user login session). Install `curl`, GNU `tar`, and standard coreutils (`sha256sum`). No GitHub account or token is needed once the repository and release are public.
 
 After the first release has been published, install both binaries and the user service. Export `JOBD_API_KEY`, `JOBD_CONTROLLER`, `JOBD_QUEUE` and optionally `JOBD_STATE_DIR` before installation to configure the worker. Without a key, the service starts but stays idle.
 
 ```sh
-gh api repos/Gzsiceberg/jobd/contents/install.sh \
-  -H 'Accept: application/vnd.github.raw+json' | sh
+curl -fsSL https://raw.githubusercontent.com/Gzsiceberg/jobd/main/install.sh | sh
 ```
 
-This is the authenticated equivalent of `curl ... | sh`; anonymous curl cannot access private release assets. For automated hosts, `gh` also supports a `GH_TOKEN` supplied securely by your environment/secret manager. Do not put credentials in URLs or shell history.
+Prefer downloading and reviewing the script before execution. The installer downloads release assets anonymously over HTTPS; private repositories are not supported by this installer. The default controller is the project's hosted endpoint; self-hosters should explicitly set `JOBD_CONTROLLER` to their own deployment and use their own key.
 
 To inspect the script before running it, pin a release or change the installation directory:
 
 ```sh
-gh api repos/Gzsiceberg/jobd/contents/install.sh \
-  -H 'Accept: application/vnd.github.raw+json' > install.sh
+curl -fSL https://raw.githubusercontent.com/Gzsiceberg/jobd/main/install.sh -o install.sh
 # Review install.sh, then:
-sh install.sh --version v0.1.0 --bin-dir "$HOME/.local/bin"
+sh install.sh --bin-dir "$HOME/.local/bin"
+# To pin a version, add --version vX.Y.Z using a published tag.
 ```
 
-Without `--version`, the latest non-prerelease is used. The installer downloads that exact release's architecture-specific archive and verifies its SHA-256 checksum before installing `jobd`, `jobd-worker`, and `jobd-uninstall`.
+Without `--version`, the latest non-prerelease is used. The installer downloads that exact release's architecture-specific archive and verifies its SHA-256 checksum before installing `jobd`, `jobd-worker`, `jobd-uninstall`, and `jobd-LICENSE`. Archives contain the MIT `LICENSE`; installed license files are checksum-tracked like binaries. This installer requires the new license-bearing archive format; v0.1.1 and earlier archives require their matching older installer.
 
 - Installation directory: `~/.local/bin`, overridden by `--bin-dir` or `JOBD_BIN_DIR`.
 - Release: latest, overridden by `--version` or `JOBD_VERSION`.
-- Repository: `Gzsiceberg/jobd`, overridden by `JOBD_REPO` for a private fork.
+- Repository: `Gzsiceberg/jobd`, overridden by `JOBD_REPO` for a public fork.
 
-Checksums detect corruption; the authenticated repository/release publisher remains trusted.
+Checksums detect corruption, not a compromised publisher. You still trust GitHub and the repository/release publisher.
 
 ## Run the installed binaries
 
@@ -74,6 +68,6 @@ The installed uninstaller automatically finds its installation directory. Altern
 sh uninstall.sh --bin-dir "$HOME/.local/bin"
 ```
 
-It validates all managed files, stops and disables the managed user service, removes its unit, reloads the user manager, and removes checksum-matched binaries and their manifest. Worker identity/state, job logs, custom service drop-ins, unrelated files, and shell PATH settings are preserved. Manually launched workers must still be stopped yourself. If a managed file was modified or replaced by a symlink, move it aside before retrying. Older binary-only installations remain supported. The uninstaller needs no GitHub authentication or network access, but needs access to the user manager when removing a managed service.
+It validates all managed files, stops and disables the managed user service, removes its unit, reloads the user manager, and removes checksum-matched binaries, the installed license, and their manifest. Worker identity/state, job logs, custom service drop-ins, unrelated files, and shell PATH settings are preserved. Manually launched workers must still be stopped yourself. If a managed file was modified or replaced by a symlink, move it aside before retrying. Older binary-only installations remain supported. The uninstaller needs no GitHub authentication or network access, but needs access to the user manager when removing a managed service.
 
 Sources: [install.sh](../install.sh), [uninstall.sh](../uninstall.sh).

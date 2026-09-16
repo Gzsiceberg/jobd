@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -58,7 +59,7 @@ func execute(ctx context.Context, command []string, grace time.Duration, env []s
 	}
 
 	cmd := exec.Command(command[0], command[1:]...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = jobEnvironment(append(os.Environ(), env...))
 	cmd.Stdout = output
 	cmd.Stderr = output
 	// A new session lets shutdown target the group, including child processes.
@@ -93,6 +94,17 @@ func execute(ctx context.Context, command []string, grace time.Duration, env []s
 		return Result{Error: executionCancellation(ctx, "Worker shut down during execution")}
 	}
 	return Result{ExitCode: &code, Error: executionCancellation(ctx, "Worker shut down during execution")}
+}
+
+// Defense in depth only: jobs run as the worker user and are not sandboxed.
+func jobEnvironment(environment []string) []string {
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		if !strings.HasPrefix(entry, "JOBD_API_KEY=") {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func processResult(cmd *exec.Cmd, err error) Result {

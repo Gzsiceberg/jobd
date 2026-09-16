@@ -25,7 +25,7 @@ The release installer sets up, enables and starts `jobd-worker.service` for the 
 
 ## Configuration and identity
 
-Set `JOBD_API_KEY` in the worker's environment to the controller's shared key. Every API request includes it as a Bearer token. Without a key, the worker stays idle without contacting the controller and can still be stopped normally. Restart with `JOBD_API_KEY` set to resume; changing another shell's environment cannot update a running worker. No key file is used. With the user service below, `jobd --restart` imports the CLI environment and restarts the worker. Use HTTPS outside localhost.
+Set `JOBD_API_KEY` in the worker's environment to the controller's shared key. Every API request includes it as a Bearer token. Without a key, the worker stays idle without contacting the controller and can still be stopped normally. Restart with `JOBD_API_KEY` set to resume; changing another shell's environment cannot update a running worker. Jobs do not inherit `JOBD_API_KEY`, but still run as the same OS user without a sandbox; this is defense in depth, not credential isolation. See [Security](../SECURITY.md). No key file is used. With the user service below, `jobd --restart` imports the CLI environment and restarts the worker. Use HTTPS outside localhost.
 
 ### systemd user service
 

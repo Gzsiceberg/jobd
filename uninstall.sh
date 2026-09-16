@@ -47,6 +47,10 @@ if [ ! -e "$bin_dir/$manifest" ] && [ ! -L "$bin_dir/$manifest" ]; then
     exit 0
 fi
 [ -f "$bin_dir/$manifest" ] && [ ! -L "$bin_dir/$manifest" ] || fail 'invalid installation manifest'
+# Older installations did not bundle a license; do not touch unrelated files.
+if [ -n "$(awk '$2 == "jobd-LICENSE" { print $1 }' "$bin_dir/$manifest")" ]; then
+    files="$files jobd-LICENSE"
+fi
 for name in $files; do
     if [ -e "$bin_dir/$name" ] || [ -L "$bin_dir/$name" ]; then
         [ -f "$bin_dir/$name" ] && [ ! -L "$bin_dir/$name" ] || fail "refusing to remove non-regular file: $bin_dir/$name"

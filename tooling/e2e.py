@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import secrets
 import socket
 import subprocess
 import tempfile
@@ -52,13 +53,19 @@ def main():
         env.update({"WRANGLER_SEND_METRICS": "false", "CI": "true"})
         port = free_port()
         address = f"http://127.0.0.1:{port}"
-        env.update({"JOBD_CONTROLLER": address, "JOBD_QUEUE": "e2e"})
+        env.update({"JOBD_CONTROLLER": address, "JOBD_QUEUE": "e2e", "JOBD_API_KEY": secrets.token_hex(32)})
+        # Keep the test key separate from developer secrets and out of argv/logs.
+        dev_vars = directory / "controller.env"
+        dev_vars.write_text("JOBD_API_KEY=" + env["JOBD_API_KEY"] + "\n")
+        dev_vars.chmod(0o600)
         cli = directory / "jobd"
         worker = directory / "jobd-worker"
 
         def api(path, queue=None):
             queue = queue or env["JOBD_QUEUE"]
-            with urllib.request.urlopen(f"{address}/queues/{queue}{path}", timeout=2) as response:
+            request = urllib.request.Request(f"{address}/queues/{queue}{path}",
+                                             headers={"Authorization": "Bearer " + env["JOBD_API_KEY"]})
+            with urllib.request.urlopen(request, timeout=2) as response:
                 return json.load(response)
 
         def jobs():
@@ -111,6 +118,7 @@ def main():
             controller = start("controller", [
                 "pnpm", "exec", "wrangler", "dev", "--local", "--ip", "127.0.0.1",
                 "--port", str(port), "--inspector-port", "0", "--persist-to", str(directory / "controller-state"),
+                "--env-file", str(dev_vars),
             ], ROOT / "controller")
 
             def ready():
@@ -121,6 +129,15 @@ def main():
                     return False
 
             eventually("controller startup", ready, timeout=60)
+            for authorization in [None, "Bearer wrong-key"]:
+                request = urllib.request.Request(f"{address}/queues/e2e/jobs",
+                    headers={} if authorization is None else {"Authorization": authorization})
+                try:
+                    urllib.request.urlopen(request, timeout=2).close()
+                    raise AssertionError("Controller accepted invalid credentials")
+                except urllib.error.HTTPError as error:
+                    check(error.code == 401, "expected unauthorized response")
+            print("PASS API authentication rejects absent/incorrect keys", flush=True)
             for flag in ["-h", "--help"]:
                 check("-U ID1 ID2" in call(flag, extra_env={"JOBD_CONTROLLER": "invalid"}).stdout, "help missing actions")
             check(call().stdout == call("-l").stdout, "default action is not list")
