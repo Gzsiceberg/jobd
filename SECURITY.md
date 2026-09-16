@@ -18,6 +18,13 @@ target the latest source/release; older versions have no maintenance guarantee.
   depth. This does not prevent same-user code from obtaining credentials through
   other mechanisms. Other inherited environment variables can contain secrets;
   keep the worker environment minimal.
+- Local fallback submissions use an owner-only Unix socket served by the worker,
+  not the controller API. The CLI never directly reads/writes queue files. Treat
+  anyone who can access the socket or write the worker's state directory as
+  authorized to execute commands. Pending commands and
+  their results are persisted there; do not store secrets in
+  command arguments. Local jobs have the same unsandboxed privileges as remote
+  jobs.
 - The installer and `jobd --restart` import configuration into the systemd user
   manager's environment. Other user services may inherit it. Use a dedicated
   account. No persistent key file is created by these commands.

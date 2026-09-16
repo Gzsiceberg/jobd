@@ -16,7 +16,7 @@ import (
 	"unicode"
 )
 
-const help = `Usage: jobd [--controller URL] [--queue NAME] [action | COMMAND [ARGS...]]
+const help = `Usage: jobd [--controller URL] [--queue NAME] [--local] [action | COMMAND [ARGS...]]
 Actions:
   -l               List jobs across workers in this queue (default)
   COMMAND [ARGS...] Submit a command and print its job ID
@@ -30,7 +30,10 @@ Actions:
   -h               Show help
 Use -- before a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
-Authentication: JOBD_API_KEY.
+Authentication: JOBD_API_KEY (controller requests only).
+--local uses the same actions against the local worker's single queue.
+Local jobs start after 30 seconds of controller idle time and run to completion.
+JOBD_STATE_DIR selects the local worker (default ~/.local/state/jobd-worker).
 Output files remain on the executing worker, not on the CLI machine.
 `
 
@@ -78,6 +81,7 @@ type client struct {
 	base   string
 	http   *http.Client
 	apiKey string
+	local  bool
 }
 
 func newClient(address, queue string) (*client, error) {
@@ -105,10 +109,12 @@ func (c *client) request(method, path string, body, result any) error {
 	if err != nil {
 		return err
 	}
-	if c.apiKey == "" {
-		return fmt.Errorf("JOBD_API_KEY is required")
+	if !c.local {
+		if c.apiKey == "" {
+			return fmt.Errorf("JOBD_API_KEY is required")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -117,12 +123,17 @@ func (c *client) request(method, path string, body, result any) error {
 		return fmt.Errorf("%s %s: %w (mutation outcome may be unknown; inspect the queue before retrying)", method, path, err)
 	}
 	defer res.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
+	limit := int64(1 << 20)
+	if c.local {
+		// 100 commands of 256 KiB, up to 6x JSON escaping, plus metadata.
+		limit = 192 << 20
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > 1<<20 {
-		return fmt.Errorf("response exceeds 1 MiB")
+	if int64(len(data)) > limit {
+		return fmt.Errorf("response exceeds %d MiB", limit>>20)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return fmt.Errorf("%s %s: %s: %s", method, path, res.Status, strings.TrimSpace(string(data)))
@@ -199,7 +210,14 @@ func displayCommand(argv []string) string {
 
 func run(args []string, out, diagnostic io.Writer) error {
 	address, queue := env("JOBD_CONTROLLER", "https://jobd-controller.aflashsheng.workers.dev"), env("JOBD_QUEUE", "default")
+	local := false
+	stateDir := env("JOBD_STATE_DIR", "~/.local/state/jobd-worker")
 	for len(args) > 0 {
+		if args[0] == "--local" {
+			local = true
+			args = args[1:]
+			continue
+		}
 		name, v, hasValue := strings.Cut(args[0], "=")
 		if name != "--controller" && name != "--queue" {
 			break
@@ -228,15 +246,29 @@ func run(args []string, out, diagnostic io.Writer) error {
 		return err
 	}
 	if action == "--restart" {
+		if local {
+			return fmt.Errorf("--restart is not a queue action")
+		}
 		if len(args) != 0 {
 			return fmt.Errorf("--restart takes no arguments")
 		}
 		return restartWorker(address, queue, out, diagnostic)
 	}
-	c, err := newClient(address, queue)
+	var c *client
+	var err error
+	if local {
+		c, err = newLocalClient(stateDir)
+	} else {
+		c, err = newClient(address, queue)
+	}
 	if err != nil {
 		return err
 	}
+	return runJobs(c, action, args, out, diagnostic)
+}
+
+// Both queues share validation, action defaults, pagination and table rendering.
+func runJobs(c *client, action string, args []string, out, diagnostic io.Writer) error {
 	switch action {
 	case "-l", "-C":
 		if len(args) != 0 {

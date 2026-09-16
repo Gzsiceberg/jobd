@@ -15,12 +15,6 @@ import (
 	"time"
 )
 
-type Job struct {
-	ID              string   `json:"id"`
-	Command         []string `json:"command"`
-	CancelRequested int      `json:"cancel_requested"`
-}
-
 type WorkerRecord struct {
 	CurrentJobID *string `json:"current_job_id"`
 	CancelJobID  *string `json:"cancel_job_id"`

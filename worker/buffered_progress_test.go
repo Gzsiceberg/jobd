@@ -37,12 +37,12 @@ func TestSocketBuffersWithoutHTTPAndFinalFailureFlushes(t *testing.T) {
 		}
 		fmt.Fprint(w, `{}`)
 	})
-	worker := testWorker(client)
+	worker := testWorker(t, client)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- worker.runJob(ctx, Job{ID: "job", Command: []string{"sh", "-c", `printf '%s' "$JOBD_PROGRESS_SOCKET" > "$1"; while [ ! -f "$2" ]; do sleep 0.01; done; exit 7`, "sh", socketFile, gate}})
+		done <- worker.runJob(ctx, Job{ID: "job", Command: []string{"sh", "-c", `printf '%s' "$JOBD_PROGRESS_SOCKET" > "$1"; while [ ! -f "$2" ]; do sleep 0.01; done; exit 7`, "sh", socketFile, gate}}, client)
 	}()
 	var path []byte
 	for len(path) == 0 && ctx.Err() == nil {

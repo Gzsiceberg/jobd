@@ -7,9 +7,9 @@ import (
 )
 
 // progressReporter belongs to one job. Socket callbacks only update its buffer;
-// the uploader is the only goroutine that sends intermediate progress over HTTP.
+// the uploader is the only goroutine that reports intermediate progress to its backend.
 type progressReporter struct {
-	client      *ControllerClient
+	client      jobBackend
 	jobID       string
 	mu          sync.Mutex
 	highest     float64
@@ -20,7 +20,7 @@ type progressReporter struct {
 	closeOnce   sync.Once
 }
 
-func openProgressReporter(ctx context.Context, client *ControllerClient, jobID string) (*progressReporter, error) {
+func openProgressReporter(ctx context.Context, client jobBackend, jobID string) (*progressReporter, error) {
 	p := &progressReporter{client: client, jobID: jobID, changed: make(chan struct{}, 1), uploadDone: make(chan struct{})}
 	var err error
 	p.socket, err = OpenProgressSocket(ctx, p.buffer)

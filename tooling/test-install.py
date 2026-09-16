@@ -138,7 +138,8 @@ exec '{actual_mv}' "$@"
         native = "amd64" if platform.machine() in ("x86_64", "amd64") else "arm64"
         check(f"jobd_{TAG}_linux_{native}.tar.gz" in (root / "curl.log").read_text(), "wrong architecture asset requested")
         check(not (home / ".profile").exists(), "installer edited shell configuration")
-        check((bins / "jobd-LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes(), "installed license missing or incorrect")
+        check((bins / "jobd-LICENSE").read_bytes().startswith((ROOT / "LICENSE").read_bytes()), "installed license missing or incorrect")
+        check("modernc.org/sqlite@" in (bins / "jobd-LICENSE").read_text(), "SQLite license notices missing")
         check((bins / "jobd-LICENSE").stat().st_mode & 0o777 == 0o644, "wrong license mode")
         print("PASS anonymous public downloads, bundled MIT license, real binaries execute", flush=True)
 

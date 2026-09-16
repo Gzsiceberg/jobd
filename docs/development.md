@@ -85,6 +85,10 @@ It checks all CLI actions, default IDs, queue ordering through actual execution,
 - The strict greater-than-5-point threshold and 10-second periodic upload even with 60-second heartbeats.
 - Cancellation of a TERM-ignoring process group.
 - Socket cleanup and worker reuse after cancellation.
+- Persistent local CLI submissions across worker restart, controller priority, the real 30-second fallback delay, and raw Unix-socket commands.
+- Local/remote parity for progress, cancellation, urgent/swap, default job selection, listing, output and cleanup.
+
+Local CLI commands reuse the HTTP client over an owner-only Unix socket, with no TCP listener or API key. Job progress uses a separate NDJSON Unix socket. Queue persistence belongs entirely to the worker, using SQLite through the CGO-free `modernc.org/sqlite` driver; there is no shared Go module.
 
 Test processes, state and identified output files are cleaned up; existing workers and controller state are not used.
 

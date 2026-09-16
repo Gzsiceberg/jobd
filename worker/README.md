@@ -52,6 +52,18 @@ Ctrl-C or SIGTERM stops polling and sends TERM to the active process group, foll
 
 On restart, an existing assignment is marked failed with an unknown outcome rather than executed again. See the controller's [deployment limits](../controller/README.md#deployment-and-limits) before relying on this for production scheduling.
 
+## Local fallback queue
+
+Submit with `jobd --local COMMAND...` on the same machine and as the same user. Set the CLI's `JOBD_STATE_DIR` to match the worker. The worker owns `<state-dir>/local/queue.db`, a SQLite database storing commands and results, not API keys. One database connection serializes access; SQLite transactions make claims and queue edits atomic. The CGO-free driver keeps the worker self-contained on Linux amd64/arm64. The CLI reuses its HTTP client over the worker's `<state-dir>/local/control.sock` Unix-domain socket (mode 0600, parent directory 0700). There is no TCP listener, no API key is sent, and the CLI never opens the queue files. Job progress still uses its separate NDJSON socket. Local CLI operations require the worker to be running.
+
+Controller jobs always get first choice. Starting with the first successful empty claim, the worker waits 30 seconds before running queued local work. A controller job resets this interval; request failures do not. Polling cadence and retries can delay a local start beyond 30 seconds. The worker still requires credentials and a successful empty controller claim before starting local work.
+
+Each local job runs once to completion before another controller claim. Heartbeats continue, but controller jobs arriving meanwhile wait. Pending local jobs survive restart; previously running jobs are marked failed rather than replayed. Local commands use the worker's working directory and environment and do not inherit `JOBD_API_KEY`. They share the same `Job` model, executor, progress reporter and cancellation lifecycle as controller jobs, but save results locally instead of reporting to the controller.
+
+Stop the worker before copying its database for backup.
+
+See [local CLI commands](../cli/README.md#local-fallback-jobs) for listing, output paths, cancellation, urgent/swap, removal and cleanup. This same-user socket interface is trusted and is not a sandbox.
+
 ## Reporting progress from a job
 
 Progress is a fraction from 0 to 1; arbitrary commands have no inferred intermediate progress. Progress starts at 0, and completion sets 1 on success.
@@ -110,9 +122,13 @@ With default settings detection normally takes up to 15 seconds plus the grace p
 - [identity_linux.go](identity_linux.go): persistent UUID and single-daemon file lock.
 - [worker.go](worker.go): register → recover → claim → execute → report, plus heartbeat lifecycle.
 - [active_job.go](active_job.go): synchronized active-job registration and cancellation routing.
+- [job.go](job.go): common job record for controller and local queue work.
 - [job_execution.go](job_execution.go): execution setup and cleanup before the terminal report.
 - [client.go](client.go): typed API records and one context-aware HTTP retry loop.
 - [executor_linux.go](executor_linux.go): direct argv execution and process-group shutdown.
-- [progress_linux.go](progress_linux.go): private per-job NDJSON Unix socket, validation and local buffering acknowledgements.
+- [local_queue.go](local_queue.go): worker-owned SQLite queue and transactional job operations.
+- [local_socket.go](local_socket.go): local HTTP job routes over a Unix socket.
+- [local.go](local.go): idle eligibility and local job execution.
+- [progress_linux.go](progress_linux.go): private per-job socket, progress validation and local buffering acknowledgements.
 - [progress_reporter_linux.go](progress_reporter_linux.go): per-job progress buffer, socket and uploader lifecycle; closes producers and joins uploads before returning final progress.
 - [progress_upload.go](progress_upload.go): independent 10-second / greater-than-5-point upload loop, owned by the per-job reporter.

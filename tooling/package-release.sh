@@ -16,6 +16,20 @@ for arch in amd64 arm64; do
     (cd "$root/worker" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags='-s -w' -o "$stage/jobd-worker" .)
     cp "$root/uninstall.sh" "$stage/jobd-uninstall"
     cp "$root/LICENSE" "$stage/LICENSE"
+    # Keep dependency notices with the distributed binaries, including SQLite.
+    printf '\n\n=== Go standard library ===\n' >> "$stage/LICENSE"
+    cat "$(go env GOROOT)/LICENSE" >> "$stage/LICENSE"
+    (cd "$root/worker" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go list -deps \
+        -f '{{if .Module}}{{if not .Module.Main}}{{.Module.Path}}@{{.Module.Version}}|{{.Module.Dir}}{{end}}{{end}}' .) \
+        | LC_ALL=C sort -u > "$stage/modules"
+    while IFS='|' read -r module directory; do
+        [ -n "$module" ] || continue
+        for notice in "$directory"/LICENSE* "$directory"/COPYING* "$directory"/NOTICE*; do
+            [ -f "$notice" ] || continue
+            printf '\n\n=== %s: %s ===\n' "$module" "$(basename "$notice")" >> "$stage/LICENSE"
+            cat "$notice" >> "$stage/LICENSE"
+        done
+    done < "$stage/modules"
     chmod 644 "$stage/LICENSE"
     chmod 755 "$stage/jobd" "$stage/jobd-worker" "$stage/jobd-uninstall"
     tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -czf "$out/jobd_${version}_linux_${arch}.tar.gz" \

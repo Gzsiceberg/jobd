@@ -16,9 +16,11 @@ import (
 	"time"
 )
 
-func testWorker(client *ControllerClient) *Worker {
+func testWorker(t *testing.T, client *ControllerClient) *Worker {
+	t.Helper()
+	local := testLocalQueue(t)
 	return &Worker{
-		client: client, hostname: "vm", pollInterval: time.Millisecond,
+		client: client, localQueue: local, hostname: "vm", pollInterval: time.Millisecond,
 		heartbeatInterval: time.Millisecond, shutdownTimeout: 100 * time.Millisecond,
 		processGrace: 10 * time.Millisecond,
 	}
@@ -43,7 +45,7 @@ func TestAlreadyRequestedCancellationDoesNotLaunch(t *testing.T) {
 		reported = true
 		fmt.Fprint(w, `{}`)
 	})
-	if err := testWorker(client).runJob(context.Background(), Job{ID: "job", Command: []string{"touch", marker}, CancelRequested: 1}); err != nil {
+	if err := testWorker(t, client).runJob(context.Background(), Job{ID: "job", Command: []string{"touch", marker}, CancelRequested: 1}, client); err != nil {
 		t.Fatal(err)
 	}
 	if !reported {
@@ -103,7 +105,7 @@ func TestWorkerRecoveryExecutionAndReportingOrder(t *testing.T) {
 			fmt.Fprint(w, `{}`)
 		}
 	})
-	err := testWorker(client).Run(ctx)
+	err := testWorker(t, client).Run(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
@@ -153,7 +155,7 @@ func TestHeartbeatContinuesDuringExecutionAndShutdownReports(t *testing.T) {
 			fmt.Fprint(w, `{}`)
 		}
 	})
-	err := testWorker(client).Run(ctx)
+	err := testWorker(t, client).Run(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run: %v", err)
 	}
@@ -166,10 +168,10 @@ func TestShutdownReportIsBounded(t *testing.T) {
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	worker := testWorker(client)
+	worker := testWorker(t, client)
 	worker.shutdownTimeout = 20 * time.Millisecond
 	done := make(chan error, 1)
-	go func() { done <- worker.reportResult(ctx, "job", Result{Error: "stopped"}) }()
+	go func() { done <- worker.reportResult(ctx, "job", Result{Error: "stopped"}, client) }()
 	select {
 	case err := <-done:
 		if !errors.Is(err, context.DeadlineExceeded) {
@@ -196,7 +198,7 @@ func TestCancellationBeforeLaunchReportsFailure(t *testing.T) {
 		}
 		fmt.Fprint(w, `{}`)
 	})
-	err := testWorker(client).runJob(ctx, Job{ID: "job", Command: []string{"touch", marker}})
+	err := testWorker(t, client).runJob(ctx, Job{ID: "job", Command: []string{"touch", marker}}, client)
 	if err != nil || !reported.Load() {
 		t.Fatalf("reported=%v err=%v", reported.Load(), err)
 	}

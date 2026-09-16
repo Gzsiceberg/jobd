@@ -374,6 +374,70 @@ def main():
             check(pasted.stdout == b"".join(arg.encode() + b"\0" for arg in copy_args), "Copied COMMAND changed arguments")
             call("-r", copy_id)
             print("PASS copied COMMAND preserves quoting, empty args, metacharacters and control characters", flush=True)
+            env["JOBD_QUEUE"] = "local-idle"
+            local_state = directory / "worker-local"
+            remote_marker = directory / "remote-first"
+            env["JOBD_STATE_DIR"] = str(local_state)
+            local_options = ("--local",)
+            call(*local_options, "echo", "worker is stopped", success=False)
+            remote_id = submit("touch", str(remote_marker))
+            local_worker_command = [str(worker), "--state-dir", str(local_state),
+                                    "--poll-interval", "0.1", "--heartbeat-interval", "0.2"]
+            local_worker = start("worker-local-first", local_worker_command, ROOT)
+            eventually("local worker socket", lambda: (local_state / "local/control.sock").exists())
+            local_id = call(*local_options, "sh", "-c",
+                'set -eu; test -f "$1"; test "${JOBD_API_KEY+x}" != x; printf "local output\\n"',
+                "sh", str(remote_marker), extra_env={"JOBD_API_KEY": ""}).stdout.strip()
+            check(local_id.startswith("local-"), "local submission ID")
+            eventually("controller job runs before local", lambda: api(f"/jobs/{remote_id}")["status"] == "succeeded")
+            output_paths.add(api(f"/jobs/{remote_id}")["output_path"])
+            check("queued" in call(*local_options, "-l").stdout, "local job ran before idle delay")
+            stop(local_worker)
+            restarted_at = time.monotonic()
+            local_worker = start("worker-local-restarted", local_worker_command, ROOT)
+            eventually("restarted local worker socket", lambda: (local_state / "local/control.sock").exists())
+            eventually("persistent local job completes", lambda: "succeeded" in call(*local_options, "-l").stdout, timeout=45)
+            check(time.monotonic() - restarted_at >= 30, "local job skipped production idle delay")
+            path = call(*local_options, "-o", local_id).stdout.strip()
+            output_paths.add(path)
+            check(Path(path).read_text() == "local output\n", "local output mismatch")
+            check(len(jobs()) == 1, "local job was sent to controller")
+
+            # Once idle, local work uses the same progress/cancel/execution flow.
+            work = directory / "local-progress"
+            work.mkdir()
+            progress_id = call(*local_options, "uv", "run", fixture, "cancel", str(work)).stdout.strip()
+            eventually("local progress job starts", lambda: (work / "ready.json").exists())
+            eventually("local progress 25%", lambda: "25.0%" in call(*local_options, "-l").stdout)
+            (work / "half").touch()
+            eventually("local progress 50%", lambda: "50.0%" in call(*local_options, "-l").stdout)
+            progress_path = call(*local_options, "-o").stdout.strip()
+            output_paths.add(progress_path)
+            for action in ["-r", "-u"]:
+                call(*local_options, action, progress_id, success=False)
+            local_order = directory / "local-order"
+            pending = [call(*local_options, "sh", "-c", 'printf "%s\\n" "$1" >> "$2"',
+                            "sh", label, str(local_order)).stdout.strip() for label in ["a", "b", "c"]]
+            call(*local_options, "-u", pending[2])
+            call(*local_options, "-U", pending[2], pending[1])
+            call(*local_options, "-u")  # Last added is still c, not the reordered tail.
+            call(*local_options, "-r")  # Remove c; remaining order is b then a.
+            call(*local_options, "-k")  # Last run is the local progress job.
+            check("cancelling" in call(*local_options, "-l").stdout, "local cancellation not visible")
+            def local_finished():
+                rows = {row.split()[0]: row.split()[1] for row in call(*local_options, "-l").stdout.splitlines()[1:]}
+                return rows.get(progress_id) == "failed" and all(rows.get(j) == "succeeded" for j in pending[:2])
+            eventually("local cancellation and reordered execution", local_finished)
+            check(local_order.read_text() == "b\na\n", "local reorder/default IDs did not affect execution")
+            for job_id in pending[:2]:
+                output_paths.add(call(*local_options, "-o", job_id).stdout.strip())
+            check("50.0%" in call(*local_options, "-l").stdout, "cancel lost local progress")
+            check(len(jobs()) == 1, "local progress/result sent to controller")
+            call(*local_options, "-C")
+            check(len(call(*local_options, "-l").stdout.splitlines()) == 1, "local clear left finished jobs")
+            stop(local_worker)
+            check(local_worker.returncode == 0, "local worker shutdown failed")
+            print("PASS persistent local submission, controller priority, real 30-second idle delay, local progress/cancel/reorder/default IDs/output and key filtering", flush=True)
             print("All real controller/worker/CLI end-to-end checks passed.", flush=True)
         except BaseException:
             try:

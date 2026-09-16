@@ -53,6 +53,27 @@ The environment remains in the user manager's memory and may be inherited by oth
 
 Use `-- COMMAND ...` for executables starting with a dash. This is a subset of tsp, not full flag compatibility. Commands are argv arrays, not shell strings; use an explicit shell for shell syntax.
 
+## Local fallback jobs
+
+```sh
+jobd --local sh -c 'echo background work'
+jobd --local -l
+jobd --local -o local-1     # output path; omit ID for the last started local job
+jobd --local -r local-1     # remove a queued or finished job; default: last added
+jobd --local -k local-1     # cancel a running job; default: last run
+jobd --local -u local-1     # move a queued job first; default: last added
+jobd --local -U local-1 local-2  # swap two queued jobs
+jobd --local -C             # clear finished records, keeping output files
+```
+
+The CLI reuses its HTTP client over the worker's owner-only Unix-domain socket, without TCP or an API key. Only the worker reads/writes the persistent queue. Local jobs use the worker's working directory and environment, just like controller jobs. Commands are argv arrays; use `sh -c` explicitly for shell syntax.
+
+The worker checks the controller first. After 30 seconds since the first empty controller poll, it may start the next local job. A local job runs to completion even if controller work arrives meanwhile. Controller request failures do not reset the idle timer. A successful empty claim is still required before starting local work, so retries block execution while the controller is unreachable. The worker still requires `JOBD_API_KEY`, but local CLI operations do not.
+
+Set `JOBD_STATE_DIR` to match the worker's state directory (default `~/.local/state/jobd-worker`). Pending jobs persist across restarts. Submission, listing and management require the worker to be running with its API key configured; the CLI reports a connection error if it is stopped. There is one local queue per state directory; `--queue` and `--controller` do not select it. Jobs left running after a restart are marked failed, never replayed automatically.
+
+Local jobs use the same job model, actions, defaults, listing columns and progress/cancellation behavior as controller jobs. They have `local-N` IDs and do not appear in controller listings. Progress is reported over the same per-job socket and saved locally, not sent to the controller. Output stays in the worker's `/tmp` logs. A normal worker shutdown cancels the local process group and records failure.
+
 ## Listing jobs
 
 `jobd` and `jobd -l` show these columns:

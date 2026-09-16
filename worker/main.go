@@ -102,11 +102,22 @@ func runWithContext(ctx context.Context, config Config) error {
 		return err
 	}
 
+	local, err := openLocalQueue(config.StateDir)
+	if err != nil {
+		return err
+	}
+	defer local.Close()
 	worker := Worker{
-		client: client, hostname: hostname,
+		client: client, hostname: hostname, localQueue: local,
 		pollInterval: config.PollInterval, heartbeatInterval: config.HeartbeatInterval,
 		shutdownTimeout: 10 * time.Second, processGrace: 5 * time.Second,
 	}
+	local.workerID, local.hostname, local.cancel = identity.ID, hostname, worker.active.RequestCancellation
+	localSocket, err := openLocalSocket(ctx, local)
+	if err != nil {
+		return err
+	}
+	defer localSocket.Close()
 	slog.Info("Worker started", "worker", identity.ID, "queue", config.Queue)
 	err = worker.Run(ctx)
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
