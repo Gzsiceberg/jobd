@@ -29,7 +29,7 @@ Actions:
   --restart        Restart the local jobd-worker systemd user service
   -h               Show help
 Use -- before a command beginning with a dash. Commands run directly, not via a shell.
-Defaults: JOBD_CONTROLLER=http://localhost:8787, JOBD_QUEUE=default.
+Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
 Authentication: JOBD_API_KEY.
 Output files remain on the executing worker, not on the CLI machine.
 `
@@ -198,7 +198,7 @@ func displayCommand(argv []string) string {
 }
 
 func run(args []string, out, diagnostic io.Writer) error {
-	address, queue := env("JOBD_CONTROLLER", "http://localhost:8787"), env("JOBD_QUEUE", "default")
+	address, queue := env("JOBD_CONTROLLER", "https://jobd-controller.aflashsheng.workers.dev"), env("JOBD_QUEUE", "default")
 	for len(args) > 0 {
 		name, v, hasValue := strings.Cut(args[0], "=")
 		if name != "--controller" && name != "--queue" {

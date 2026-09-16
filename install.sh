@@ -196,7 +196,7 @@ committed=1
 # Service-manager failures leave a complete tracked installation for retry/uninstall.
 systemctl --user daemon-reload || fail 'installed files, but daemon-reload failed; rerun the installer'
 JOBD_API_KEY=${JOBD_API_KEY:-}
-JOBD_CONTROLLER=${JOBD_CONTROLLER:-http://localhost:8787}
+JOBD_CONTROLLER=${JOBD_CONTROLLER:-https://jobd-controller.aflashsheng.workers.dev}
 JOBD_QUEUE=${JOBD_QUEUE:-default}
 JOBD_STATE_DIR=${JOBD_STATE_DIR:-$HOME/.local/state/jobd-worker}
 export JOBD_API_KEY JOBD_CONTROLLER JOBD_QUEUE JOBD_STATE_DIR

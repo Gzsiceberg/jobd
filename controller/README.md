@@ -66,7 +66,7 @@ printf '%s' "$JOBD_API_KEY" | pnpm --filter jobd-controller exec wrangler secret
 
 Reuse that same key for the CLI and workers; do not generate a different key for each component.
 
-Configure a protected HTTPS route first; `workers_dev` is deliberately disabled. **There is no execution sandbox: anyone holding the shared key can execute commands on your VMs in any queue. Run workers as an unprivileged user.**
+The default endpoint is `https://jobd-controller.aflashsheng.workers.dev`; `workers_dev` is enabled. Configure the `JOBD_API_KEY` secret before using it. **There is no execution sandbox: anyone holding the shared key can execute commands on your VMs in any queue. Run workers as an unprivileged user.**
 
 This is a scaffold, not a production scheduler. Each queue has separate SQLite `jobs` and `workers` tables in its own Durable Object. Operations read/update individual rows; claiming and completion update both tables atomically. An index selects queued jobs in queue order (FIFO unless explicitly reordered). Only each command's argv array is JSON-encoded.
 

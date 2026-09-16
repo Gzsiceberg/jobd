@@ -17,7 +17,7 @@ If installed from a release, use `jobd` instead of `./cli/jobd`.
 
 ## Configuration
 
-Set `JOBD_CONTROLLER` and `JOBD_QUEUE`, or pass `--controller URL` and `--queue NAME` **before** the action/command. Defaults match the worker: `http://localhost:8787` and `default`.
+Set `JOBD_CONTROLLER` and `JOBD_QUEUE`, or pass `--controller URL` and `--queue NAME` **before** the action/command. Defaults match the worker: `https://jobd-controller.aflashsheng.workers.dev` and `default`.
 
 Set `JOBD_API_KEY` to the controller's shared key. The CLI sends it as a Bearer token on every API request and refuses API requests when it is missing. Use HTTPS outside localhost. Keys are environment-only; no key file is written.
 

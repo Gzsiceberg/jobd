@@ -28,7 +28,7 @@ func parseConfig(args []string, output io.Writer) (Config, error) {
 	var config Config
 	flags := flag.NewFlagSet("jobd-worker", flag.ContinueOnError)
 	flags.SetOutput(output)
-	flags.StringVar(&config.Controller, "controller", envDefault("JOBD_CONTROLLER", "http://localhost:8787"), "controller URL")
+	flags.StringVar(&config.Controller, "controller", envDefault("JOBD_CONTROLLER", "https://jobd-controller.aflashsheng.workers.dev"), "controller URL")
 	flags.StringVar(&config.Queue, "queue", envDefault("JOBD_QUEUE", "default"), "queue name")
 	flags.StringVar(&config.StateDir, "state-dir", envDefault("JOBD_STATE_DIR", "~/.local/state/jobd-worker"), "identity and lock directory")
 	poll := flags.Float64("poll-interval", 5, "idle polling and HTTP retry interval in seconds")

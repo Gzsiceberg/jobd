@@ -11,7 +11,7 @@ Commands below run from the repository root unless otherwise noted.
 ```sh
 cd worker
 go build -o jobd-worker .
-./jobd-worker --controller http://localhost:8787 --queue default
+./jobd-worker --controller https://jobd-controller.aflashsheng.workers.dev --queue default
 ```
 
 Build a standalone binary for a Linux VM (use `GOARCH=arm64` for ARM):
@@ -40,7 +40,7 @@ For source builds, run the worker directly or create your own user service. Stop
 
 The worker stores its ID in `~/.local/state/jobd-worker`. Use `--state-dir PATH` for separate daemons; never copy an identity to another VM.
 
-Poll and heartbeat intervals default to 5 and 15 seconds (`--poll-interval`, `--heartbeat-interval`, both in seconds). `JOBD_CONTROLLER`, `JOBD_QUEUE` and `JOBD_STATE_DIR` provide environment defaults; flags take precedence. The default controller is `http://localhost:8787` and the default queue is `default`.
+Poll and heartbeat intervals default to 5 and 15 seconds (`--poll-interval`, `--heartbeat-interval`, both in seconds). `JOBD_CONTROLLER`, `JOBD_QUEUE` and `JOBD_STATE_DIR` provide environment defaults; flags take precedence. The default controller is `https://jobd-controller.aflashsheng.workers.dev` and the default queue is `default`.
 
 ## Execution, output and shutdown
 
