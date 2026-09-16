@@ -52,9 +52,12 @@ From the repository root:
 ```sh
 pnpm --filter jobd-controller exec wrangler login
 pnpm --filter jobd-controller deploy
+pnpm --filter jobd-controller exec wrangler secret put JOBD_API_KEY
 ```
 
-Configure a protected route first; `workers_dev` is deliberately disabled. **There is no authentication or sandbox: anyone with API access can execute commands on your VMs. Do not expose this controller publicly. Run workers as an unprivileged user.**
+Every HTTP route requires `Authorization: Bearer <JOBD_API_KEY>`. Missing or incorrect credentials return 401; an unset controller key returns 503 (no unauthenticated fallback). Use the same strong random key in the controller, CLI and workers. For local development, set `JOBD_API_KEY` in `controller/.dev.vars` (gitignored). Include the Authorization header in raw HTTP requests.
+
+Configure a protected HTTPS route first; `workers_dev` is deliberately disabled. **There is no execution sandbox: anyone holding the shared key can execute commands on your VMs in any queue. Run workers as an unprivileged user.**
 
 This is a scaffold, not a production scheduler. Each queue has separate SQLite `jobs` and `workers` tables in its own Durable Object. Operations read/update individual rows; claiming and completion update both tables atomically. An index selects queued jobs in queue order (FIFO unless explicitly reordered). Only each command's argv array is JSON-encoded.
 

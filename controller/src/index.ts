@@ -4,6 +4,7 @@ import { createQueueApi } from './api/queues';
 import { Scheduler } from './jobs/scheduler';
 
 interface Env {
+  JOBD_API_KEY?: string;
   SCHEDULER: DurableObjectNamespace<SchedulerObject>;
 }
 
@@ -23,8 +24,10 @@ export class SchedulerObject extends DurableObject<Env> {
 
 export default {
   fetch(request: Request, env: Env) {
-    return createQueueApi((name, queueRequest) =>
-      env.SCHEDULER.get(env.SCHEDULER.idFromName(name)).fetch(queueRequest),
+    return createQueueApi(
+      (name, queueRequest) =>
+        env.SCHEDULER.get(env.SCHEDULER.idFromName(name)).fetch(queueRequest),
+      env.JOBD_API_KEY,
     ).fetch(request);
   },
 } satisfies ExportedHandler<Env>;

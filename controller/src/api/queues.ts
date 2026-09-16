@@ -6,8 +6,23 @@ const queueName = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/);
 /** Route a named queue to its own storage instance; keep internal routes unchanged. */
 export function createQueueApi(
   forward: (name: string, request: Request) => Response | Promise<Response>,
+  apiKey?: string,
 ) {
   const app = new Hono();
+  app.use('*', async (c, next) => {
+    if (!apiKey?.trim()) {
+      return c.json(
+        { error: 'Controller authentication is not configured' },
+        503,
+      );
+    }
+    const authorization = c.req.header('Authorization') ?? '';
+    if (authorization !== `Bearer ${apiKey}`) {
+      c.header('WWW-Authenticate', 'Bearer');
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    await next();
+  });
   app.all('/queues/:name/*', (c) => {
     const name = queueName.safeParse(c.req.param('name'));
     if (!name.success) {

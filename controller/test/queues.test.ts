@@ -13,11 +13,14 @@ it('routes each name to independent state and preserves request bodies', async (
       queues.set(name, scheduler);
     }
     return createApi(scheduler).fetch(request);
-  });
+  }, 'test-key');
   const post = (path: string, body: unknown) =>
     api.request(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer test-key',
+      },
       body: JSON.stringify(body),
     });
   expect((await post('/queues/alpha/jobs', { command: ['true'] })).status).toBe(
@@ -35,16 +38,40 @@ it('routes each name to independent state and preserves request bodies', async (
   expect(queues.get('beta')!.claim('worker')).toBeNull();
   expect(queues.get('beta')?.worker('worker').current_job_id).toBeNull();
   const id = assigned.id;
-  expect((await api.request(`/queues/alpha/jobs/${id}`)).status).toBe(200);
-  expect((await api.request(`/queues/beta/jobs/${id}`)).status).toBe(404);
+  expect(
+    (
+      await api.request(`/queues/alpha/jobs/${id}`, {
+        headers: { Authorization: 'Bearer test-key' },
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await api.request(`/queues/beta/jobs/${id}`, {
+        headers: { Authorization: 'Bearer test-key' },
+      })
+    ).status,
+  ).toBe(404);
 });
 
 it('rejects invalid names and unscoped routes before forwarding', async () => {
   const api = createQueueApi(() => {
     throw new Error('Must not forward');
-  });
+  }, 'test-key');
   for (const name of ['UPPER', 'bad.name', 'a'.repeat(64), 'bad%20name']) {
-    expect((await api.request(`/queues/${name}/jobs`)).status).toBe(400);
+    expect(
+      (
+        await api.request(`/queues/${name}/jobs`, {
+          headers: { Authorization: 'Bearer test-key' },
+        })
+      ).status,
+    ).toBe(400);
   }
-  expect((await api.request('/jobs')).status).toBe(404);
+  expect(
+    (
+      await api.request('/jobs', {
+        headers: { Authorization: 'Bearer test-key' },
+      })
+    ).status,
+  ).toBe(404);
 });
