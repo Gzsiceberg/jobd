@@ -26,9 +26,11 @@ Actions:
   -k [ID]          Request cancellation of a running job (last run by default)
   -u [ID]          Move a queued job first (last added by default)
   -U ID1 ID2       Swap two queued jobs
+  --restart        Restart the local jobd-worker systemd user service
   -h               Show help
 Use -- before a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=http://localhost:8787, JOBD_QUEUE=default.
+Authentication: JOBD_API_KEY.
 Output files remain on the executing worker, not on the CLI machine.
 `
 
@@ -73,8 +75,9 @@ func elapsed(j job, now time.Time) string {
 }
 
 type client struct {
-	base string
-	http *http.Client
+	base   string
+	http   *http.Client
+	apiKey string
 }
 
 func newClient(address, queue string) (*client, error) {
@@ -85,7 +88,7 @@ func newClient(address, queue string) (*client, error) {
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`).MatchString(queue) {
 		return nil, fmt.Errorf("invalid queue name")
 	}
-	return &client{strings.TrimRight(address, "/") + "/queues/" + queue, &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &client{base: strings.TrimRight(address, "/") + "/queues/" + queue, apiKey: strings.TrimSpace(os.Getenv("JOBD_API_KEY")), http: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 // Never retry mutations automatically: a lost submission/swap response is ambiguous.
@@ -102,6 +105,10 @@ func (c *client) request(method, path string, body, result any) error {
 	if err != nil {
 		return err
 	}
+	if c.apiKey == "" {
+		return fmt.Errorf("JOBD_API_KEY is required")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -219,6 +226,12 @@ func run(args []string, out, diagnostic io.Writer) error {
 	if action == "-h" || action == "--help" {
 		_, err := io.WriteString(out, help)
 		return err
+	}
+	if action == "--restart" {
+		if len(args) != 0 {
+			return fmt.Errorf("--restart takes no arguments")
+		}
+		return restartWorker(address, queue, out, diagnostic)
 	}
 	c, err := newClient(address, queue)
 	if err != nil {

@@ -19,6 +19,21 @@ If installed from a release, use `jobd` instead of `./cli/jobd`.
 
 Set `JOBD_CONTROLLER` and `JOBD_QUEUE`, or pass `--controller URL` and `--queue NAME` **before** the action/command. Defaults match the worker: `http://localhost:8787` and `default`.
 
+Set `JOBD_API_KEY` to the controller's shared key. The CLI sends it as a Bearer token on every API request and refuses API requests when it is missing. Use HTTPS outside localhost. Keys are environment-only; no key file is written.
+
+## Restart the local worker
+
+After [installing the systemd user service](../worker/README.md#systemd-user-service), run:
+
+```sh
+export JOBD_API_KEY='your-controller-key'
+jobd --restart
+```
+
+This imports `JOBD_API_KEY`, the selected controller and queue (including CLI flags), and `JOBD_STATE_DIR` (or its default) into the systemd user manager, then runs `systemctl --user restart jobd-worker.service`. No controller API request is made. An unset key clears the imported key and leaves the replacement worker waiting. Restarting cancels any running job; it does not replay it.
+
+The environment remains in the user manager's memory and may be inherited by other user services; use a dedicated worker account where appropriate. It is not persisted across user-manager restarts. Unit-level environment overrides take precedence, so do not set these variables in the service unit if you want CLI environment updates to apply.
+
 ## Commands
 
 ```sh
