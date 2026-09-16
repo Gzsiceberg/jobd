@@ -81,22 +81,25 @@ func run(config Config) error {
 }
 
 func runWithContext(ctx context.Context, config Config) error {
-	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == "" {
-		slog.Info("Waiting for JOBD_API_KEY; restart worker with the environment variable set")
-		<-ctx.Done()
-		return nil
+	var client *ControllerClient
+	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) != "" {
+		var err error
+		client, err = NewControllerClient(config.Controller, "", config.Queue, config.PollInterval)
+		if err != nil {
+			return err
+		}
+		defer client.http.CloseIdleConnections()
+	} else {
+		slog.Info("Local-only mode; set JOBD_API_KEY and restart worker to enable controller jobs")
 	}
-	client, err := NewControllerClient(config.Controller, "", config.Queue, config.PollInterval)
-	if err != nil {
-		return err
-	}
-	defer client.http.CloseIdleConnections()
 	identity, err := OpenWorkerIdentity(config.StateDir)
 	if err != nil {
 		return err
 	}
 	defer identity.Close()
-	client.workerID = identity.ID
+	if client != nil {
+		client.workerID = identity.ID
+	}
 	hostname, err := os.Hostname()
 	if err != nil {
 		return err

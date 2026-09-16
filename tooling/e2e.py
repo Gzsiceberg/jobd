@@ -438,6 +438,33 @@ def main():
             stop(local_worker)
             check(local_worker.returncode == 0, "local worker shutdown failed")
             print("PASS persistent local submission, controller priority, real 30-second idle delay, local progress/cancel/reorder/default IDs/output and key filtering", flush=True)
+            # No credentials: both binaries automatically select local-only mode.
+            env.pop("JOBD_API_KEY")
+            env["JOBD_CONTROLLER"] = "invalid-unused-controller"
+            no_key_state = directory / "worker-no-key"
+            env["JOBD_STATE_DIR"] = str(no_key_state)
+            no_key_worker = start("worker-no-key", [str(worker), "--poll-interval", "0.1"], ROOT)
+            eventually("no-key worker socket", lambda: (no_key_state / "local/control.sock").exists())
+            for args in [(), ("-l",)]:
+                listed = call(*args)
+                check("JOBD_API_KEY" in listed.stderr and "jobd --restart" in listed.stderr,
+                      "no-key listing did not explain controller setup")
+                check("Warning" not in listed.stdout, "warning polluted job listing")
+            no_key_id = call("sh", "-c", 'test "${JOBD_API_KEY+x}" != x; echo no-key-output').stdout.strip()
+            check(no_key_id.startswith("local-"), "no-key submission was not local")
+            eventually("no-key job completes without idle delay", lambda: "succeeded" in call("-l").stdout, timeout=5)
+            path = call("-o", no_key_id).stdout.strip()
+            output_paths.add(path)
+            check(Path(path).read_text() == "no-key-output\n", "no-key output mismatch")
+            stop(no_key_worker)
+            check(no_key_worker.returncode == 0, "no-key worker shutdown failed")
+            no_key_worker = start("worker-no-key-restarted", [str(worker), "--poll-interval", "0.1"], ROOT)
+            eventually("restarted no-key socket", lambda: (no_key_state / "local/control.sock").exists())
+            check(no_key_id in call("-l").stdout, "no-key restart lost persisted job")
+            call("-C")
+            stop(no_key_worker)
+            check(no_key_worker.returncode == 0, "restarted no-key worker shutdown failed")
+            print("PASS automatic local-only mode without API key, listing warning, immediate execution, output and restart persistence", flush=True)
             print("All real controller/worker/CLI end-to-end checks passed.", flush=True)
         except BaseException:
             try:

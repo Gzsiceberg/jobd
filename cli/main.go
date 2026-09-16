@@ -30,9 +30,9 @@ Actions:
   -h               Show help
 Use -- before a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
-Authentication: JOBD_API_KEY (controller requests only).
+Authentication: JOBD_API_KEY (controller requests only). Without it, local mode is automatic.
 --local uses the same actions against the local worker's single queue.
-Local jobs start after 30 seconds of controller idle time and run to completion.
+Local jobs run without an idle delay when no key is set; otherwise after 30 seconds of controller idle time.
 JOBD_STATE_DIR selects the local worker (default ~/.local/state/jobd-worker).
 Output files remain on the executing worker, not on the CLI machine.
 `
@@ -253,6 +253,12 @@ func run(args []string, out, diagnostic io.Writer) error {
 			return fmt.Errorf("--restart takes no arguments")
 		}
 		return restartWorker(address, queue, out, diagnostic)
+	}
+	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == "" {
+		local = true
+		if action == "-l" {
+			fmt.Fprintln(diagnostic, "Warning: JOBD_API_KEY is not set; using local mode. Set JOBD_API_KEY and run jobd --restart to enable controller jobs.")
+		}
 	}
 	var c *client
 	var err error

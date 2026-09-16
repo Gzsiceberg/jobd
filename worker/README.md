@@ -21,11 +21,11 @@ cd worker
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o jobd-worker .
 ```
 
-The release installer sets up, enables and starts `jobd-worker.service` for the current user. Set `JOBD_API_KEY` in the installer environment, or the worker will wait idle. See [installation](../docs/installation.md).
+The release installer sets up, enables and starts `jobd-worker.service` for the current user. Set `JOBD_API_KEY` in the installer environment, or the worker will run local jobs only. See [installation](../docs/installation.md).
 
 ## Configuration and identity
 
-Set `JOBD_API_KEY` in the worker's environment to the controller's shared key. Every API request includes it as a Bearer token. Without a key, the worker stays idle without contacting the controller and can still be stopped normally. Restart with `JOBD_API_KEY` set to resume; changing another shell's environment cannot update a running worker. Jobs do not inherit `JOBD_API_KEY`, but still run as the same OS user without a sandbox; this is defense in depth, not credential isolation. See [Security](../SECURITY.md). No key file is used. With the user service below, `jobd --restart` imports the CLI environment and restarts the worker. Use HTTPS outside localhost.
+Set `JOBD_API_KEY` in the worker's environment to the controller's shared key. Every API request includes it as a Bearer token. Without a key, the worker runs local jobs without the 30-second idle delay and never contacts the controller. Restart with `JOBD_API_KEY` set to enable controller jobs; changing another shell's environment cannot update a running worker. Jobs do not inherit `JOBD_API_KEY`, but still run as the same OS user without a sandbox; this is defense in depth, not credential isolation. See [Security](../SECURITY.md). No key file is used. With the user service below, `jobd --restart` imports the CLI environment and restarts the worker. Use HTTPS outside localhost.
 
 ### systemd user service
 
@@ -36,7 +36,7 @@ export JOBD_API_KEY='your-controller-key'
 jobd --restart
 ```
 
-For source builds, run the worker directly or create your own user service. Stop any manually launched worker using the same state directory first. View logs with `journalctl --user -u jobd-worker.service` and stop with `systemctl --user stop jobd-worker.service`. Restart cancels active work and gives the worker up to 30 seconds to shut down. After the systemd user manager restarts (for example, after reboot), import the key again with `jobd --restart`; otherwise the service waits for configuration. The release uninstaller stops and removes the service it manages, while preserving state and logs.
+For source builds, run the worker directly or create your own user service. Stop any manually launched worker using the same state directory first. View logs with `journalctl --user -u jobd-worker.service` and stop with `systemctl --user stop jobd-worker.service`. Restart cancels active work and gives the worker up to 30 seconds to shut down. After the systemd user manager restarts (for example, after reboot), import the key again with `jobd --restart`; otherwise the service runs in local-only mode. The release uninstaller stops and removes the service it manages, while preserving state and logs.
 
 The worker stores its ID in `~/.local/state/jobd-worker`. Use `--state-dir PATH` for separate daemons; never copy an identity to another VM.
 
@@ -56,7 +56,7 @@ On restart, an existing assignment is marked failed with an unknown outcome rath
 
 Submit with `jobd --local COMMAND...` on the same machine and as the same user. Set the CLI's `JOBD_STATE_DIR` to match the worker. The worker owns `<state-dir>/local/queue.db`, a SQLite database storing commands and results, not API keys. One database connection serializes access; SQLite transactions make claims and queue edits atomic. The CGO-free driver keeps the worker self-contained on Linux amd64/arm64. The CLI reuses its HTTP client over the worker's `<state-dir>/local/control.sock` Unix-domain socket (mode 0600, parent directory 0700). There is no TCP listener, no API key is sent, and the CLI never opens the queue files. Job progress still uses its separate NDJSON socket. Local CLI operations require the worker to be running.
 
-Controller jobs always get first choice. Starting with the first successful empty claim, the worker waits 30 seconds before running queued local work. A controller job resets this interval; request failures do not. Polling cadence and retries can delay a local start beyond 30 seconds. The worker still requires credentials and a successful empty controller claim before starting local work.
+Controller jobs always get first choice. Starting with the first successful empty claim, the worker waits 30 seconds before running queued local work. A controller job resets this interval; request failures do not. Polling cadence and retries can delay a local start beyond 30 seconds. With credentials configured, a successful empty controller claim is required before starting local work. Without `JOBD_API_KEY`, the worker skips controller requests and runs local jobs without the idle delay.
 
 Each local job runs once to completion before another controller claim. Heartbeats continue, but controller jobs arriving meanwhile wait. Pending local jobs survive restart; previously running jobs are marked failed rather than replayed. Local commands use the worker's working directory and environment and do not inherit `JOBD_API_KEY`. They share the same `Job` model, executor, progress reporter and cancellation lifecycle as controller jobs, but save results locally instead of reporting to the controller.
 

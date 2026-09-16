@@ -220,5 +220,5 @@ case ":${PATH:-}:" in
     *) printf 'Add %s to PATH in your shell configuration.\n' "$bin_dir" ;;
 esac
 printf '%s\n' 'Enabled and restarted jobd-worker.service for the current user.' \
-    'Without JOBD_API_KEY the worker waits. Set it and run jobd --restart to resume.' \
+    'Without JOBD_API_KEY the worker runs local jobs only. Set it and run jobd --restart to enable controller jobs.' \
     "Uninstall with: $bin_dir/jobd-uninstall"

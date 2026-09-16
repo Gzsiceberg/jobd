@@ -31,33 +31,37 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err := w.localQueue.recover(); err != nil {
 		return fmt.Errorf("recover local queue: %w", err)
 	}
-	record, err := w.client.Register(ctx, w.hostname)
-	if err != nil {
-		return fmt.Errorf("register: %w", err)
-	}
-
-	heartbeatDone := make(chan struct{})
-	go func() {
-		defer close(heartbeatDone)
-		w.heartbeatLoop(ctx)
-	}()
-	defer func() {
-		cancel()
-		<-heartbeatDone
-	}()
-
-	if err := w.recoverPreviousJob(ctx, record); err != nil {
-		return err
+	if w.client != nil {
+		record, err := w.client.Register(ctx, w.hostname)
+		if err != nil {
+			return fmt.Errorf("register: %w", err)
+		}
+		heartbeatDone := make(chan struct{})
+		go func() {
+			defer close(heartbeatDone)
+			w.heartbeatLoop(ctx)
+		}()
+		defer func() {
+			cancel()
+			<-heartbeatDone
+		}()
+		if err := w.recoverPreviousJob(ctx, record); err != nil {
+			return err
+		}
 	}
 	idle := idleWindow{delay: w.localDelay}
 	for ctx.Err() == nil {
-		job, err := w.client.Claim(ctx)
-		if err != nil {
-			return fmt.Errorf("claim: %w", err)
+		var job *Job
+		var err error
+		if w.client != nil {
+			job, err = w.client.Claim(ctx)
+			if err != nil {
+				return fmt.Errorf("claim: %w", err)
+			}
 		}
-		// Prefer controller work; use the local queue only after the idle delay.
+		// Prefer controller work when configured; local-only mode needs no idle delay.
 		var backend jobBackend = w.client
-		if job == nil && idle.observe(time.Now()) && ctx.Err() == nil {
+		if job == nil && (w.client == nil || idle.observe(time.Now())) && ctx.Err() == nil {
 			job, err = w.localQueue.claim()
 			if err != nil {
 				return fmt.Errorf("claim local job: %w", err)
