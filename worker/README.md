@@ -4,6 +4,12 @@
 
 A Linux daemon. Runs one command at a time.
 
+## Queue environment
+
+Controller claims deliver the queue's [encrypted-at-rest environment secrets](../controller/README.md#queue-environment-secrets) over HTTPS. The worker keeps decrypted values only in memory and injects them into the assigned job process, overriding inherited values. It does not save them in job records or local storage, or modify its own environment. Local jobs never receive queue secrets. `JOBD_` names are allowed, but `JOBD_API_KEY` and `JOBD_ENV_KEY` are stripped from job environments, and the worker sets `JOBD_PROGRESS_SOCKET` itself.
+
+Changes apply on subsequent claims, not to running processes. Job code can read these values and may expose them through output or network requests; output files are not redacted. The worker host and submitted code must be trusted. Never configure the controller's `JOBD_ENV_KEY` on workers.
+
 ## Build and run
 
 From the repository root:

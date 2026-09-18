@@ -66,10 +66,20 @@ func (c *ControllerClient) Heartbeat(ctx context.Context) (WorkerRecord, error) 
 
 func (c *ControllerClient) Claim(ctx context.Context) (*Job, error) {
 	var response struct {
-		Job *Job `json:"job"`
+		Job         *Job              `json:"job"`
+		Environment map[string]string `json:"environment"`
 	}
 	err := c.post(ctx, c.workerPath("claim"), struct{}{}, &response)
-	return response.Job, err
+	if err != nil {
+		return nil, err
+	}
+	if len(response.Environment) > 0 && !strings.HasPrefix(c.baseURL, "https://") {
+		return nil, fmt.Errorf("queue environment requires HTTPS")
+	}
+	if response.Job != nil {
+		response.Job.queueEnv = response.Environment
+	}
+	return response.Job, nil
 }
 
 func (c *ControllerClient) Progress(ctx context.Context, jobID string, progress float64) error {
@@ -148,13 +158,14 @@ func (c *ControllerClient) postOnce(ctx context.Context, path string, payload []
 		retry = response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
 		return retry, fmt.Errorf("POST %s: %s", path, response.Status)
 	}
-	const maxResponse = 1 << 20
+	// Allow the bounded command and queue environment even with 6x JSON escaping.
+	const maxResponse = 8 << 20
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
 	if err != nil {
 		return true, err
 	}
 	if len(data) > maxResponse {
-		return false, fmt.Errorf("POST %s: response exceeds 1 MiB", path)
+		return false, fmt.Errorf("POST %s: response exceeds 8 MiB", path)
 	}
 	if output != nil {
 		if err := json.Unmarshal(data, output); err != nil {

@@ -100,7 +100,7 @@ func execute(ctx context.Context, command []string, grace time.Duration, env []s
 func jobEnvironment(environment []string) []string {
 	filtered := make([]string, 0, len(environment))
 	for _, entry := range environment {
-		if !strings.HasPrefix(entry, "JOBD_API_KEY=") {
+		if !strings.HasPrefix(entry, "JOBD_API_KEY=") && !strings.HasPrefix(entry, "JOBD_ENV_KEY=") {
 			filtered = append(filtered, entry)
 		}
 	}

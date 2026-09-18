@@ -4,6 +4,8 @@ import "time"
 
 // Job is the common record for controller and local queue work.
 type Job struct {
+	// Claim-only secrets: unexported so no job/state JSON can persist them.
+	queueEnv        map[string]string
 	ID              string     `json:"id"`
 	Status          string     `json:"status"`
 	Command         []string   `json:"command"`

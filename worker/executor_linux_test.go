@@ -14,8 +14,9 @@ import (
 
 func TestJobDoesNotInheritAPIKey(t *testing.T) {
 	t.Setenv("JOBD_API_KEY", "worker-secret")
+	t.Setenv("JOBD_ENV_KEY", "controller-only-secret")
 	t.Setenv("JOBD_TEST_KEEP", "kept")
-	result := execute(context.Background(), []string{"sh", "-c", `test "${JOBD_API_KEY+x}" != x && test "$JOBD_TEST_KEEP" = kept && test "$JOBD_PROGRESS_SOCKET" = /tmp/test.sock`}, time.Millisecond,
+	result := execute(context.Background(), []string{"sh", "-c", `test "${JOBD_API_KEY+x}" != x && test "${JOBD_ENV_KEY+x}" != x && test "$JOBD_TEST_KEEP" = kept && test "$JOBD_PROGRESS_SOCKET" = /tmp/test.sock`}, time.Millisecond,
 		[]string{"JOBD_API_KEY=override-secret", "JOBD_PROGRESS_SOCKET=/tmp/test.sock"})
 	t.Cleanup(func() { os.Remove(result.OutputPath) })
 	if result.ExitCode == nil || *result.ExitCode != 0 {

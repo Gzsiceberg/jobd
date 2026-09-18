@@ -25,7 +25,12 @@ func (w *Worker) executeJob(ctx context.Context, job Job, backend jobBackend) (r
 		finalProgress := progress.Close()
 		result.Progress = &finalProgress
 	}()
-	return execute(ctx, job.Command, w.processGrace, []string{"JOBD_PROGRESS_SOCKET=" + progress.SocketPath()}, func(path string) error {
+	environment := make([]string, 0, len(job.queueEnv)+1)
+	for name, value := range job.queueEnv {
+		environment = append(environment, name+"="+value)
+	}
+	environment = append(environment, "JOBD_PROGRESS_SOCKET="+progress.SocketPath())
+	return execute(ctx, job.Command, w.processGrace, environment, func(path string) error {
 		return backend.Output(ctx, job.ID, path)
 	})
 }
