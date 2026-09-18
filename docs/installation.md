@@ -47,18 +47,18 @@ The installer copies binaries only. No service, sudo or shell changes. Local com
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 jobd --local echo hello      # starts worker if absent
-jobd --restart               # start/restart with current settings
-jobd --stop                  # stop worker
+jobd worker restart         # start/restart with current settings
+jobd worker stop            # stop worker
 tail -f ~/.local/state/jobd-worker/worker.log
 ```
 
-The worker inherits the CLI's environment and working directory. No key file is written. It survives SSH disconnects. After a crash or reboot, run a local command or `jobd --restart` again. For automatic recovery, use an external supervisor.
+The worker inherits the CLI's environment and working directory. No key file is written. It survives SSH disconnects. After a crash or reboot, run a local command or `jobd worker restart` again. For automatic recovery, use an external supervisor.
 
 See [worker configuration](../worker/README.md) and [CLI commands](../cli/README.md).
 
 ## Upgrade or downgrade
 
-Rerun the installer. Use `--version` to pin a release. Then run `jobd --restart` with your settings exported. Restart cancels active work; installation alone leaves it running.
+Rerun the installer. Use `--version` to pin a release. Then run `jobd worker restart` with your settings exported. Restart cancels active work; installation alone leaves it running.
 
 - `.jobd-install.sha256` tracks managed files.
 - Unmanaged or modified files are not silently overwritten. Move conflicting files aside.

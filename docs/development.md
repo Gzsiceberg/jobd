@@ -6,7 +6,7 @@ Run commands from the repository root.
 
 ## Prerequisites
 
-Node.js 24, pnpm 12.4.1, Go 1.27.1+ and uv. Workers target Linux. Python scripts declare requirements inline.
+Node.js 24, pnpm 12.4.1, Go 1.27.1+, OpenSSL and uv. Workers target Linux. Python scripts declare requirements inline.
 
 ## Start the controller
 
@@ -14,7 +14,7 @@ Node.js 24, pnpm 12.4.1, Go 1.27.1+ and uv. Workers target Linux. Python scripts
 nvm install && nvm use     # optional: if using nvm
 corepack enable
 pnpm install
-export JOBD_API_KEY="$(uv run tooling/generate-api-key.py)"
+export JOBD_API_KEY="$(openssl rand -base64 32)"
 (umask 077; printf 'JOBD_API_KEY=%s\n' "$JOBD_API_KEY" > controller/.dev.vars)
 pnpm dev                  # localhost:8787; persistent local SQLite
 ```

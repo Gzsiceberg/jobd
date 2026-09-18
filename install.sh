@@ -143,5 +143,5 @@ case ":${PATH:-}:" in
     *) printf 'Add %s to PATH in your shell configuration.\n' "$bin_dir" ;;
 esac
 printf '%s\n' 'Local commands start jobd-worker on demand. Remote commands do not.' \
-    'Run jobd --restart to start a controller worker or apply an upgrade/environment changes.' \
+    'Run jobd worker restart to start a controller worker or apply an upgrade/environment changes.' \
     "Uninstall with: $bin_dir/jobd-uninstall"

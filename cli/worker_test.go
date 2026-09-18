@@ -66,7 +66,7 @@ func TestRemoteDoesNotStartWorker(t *testing.T) {
 	t.Setenv("JOBD_CONTROLLER", server.URL)
 	t.Setenv("PATH", t.TempDir())
 	var out bytes.Buffer
-	if err := run([]string{"-l"}, &out, &out); err != nil {
+	if err := run([]string{"-l"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -75,11 +75,32 @@ func TestRemoteDoesNotStartWorker(t *testing.T) {
 }
 
 func TestWorkerControlRejectsArguments(t *testing.T) {
-	for _, args := range [][]string{{"--restart", "extra"}, {"--stop", "extra"}, {"--local", "--stop"}} {
+	for _, args := range [][]string{{"worker", "restart", "extra"}, {"worker", "stop", "extra"}, {"--local", "worker", "stop"}} {
 		var out bytes.Buffer
-		if err := run(args, &out, &out); err == nil {
+		if err := run(args, strings.NewReader(""), &out, &out); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
+	}
+}
+
+func TestRemovedWorkerShortcuts(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	for _, key := range []string{"", "test-key"} {
+		t.Setenv("JOBD_API_KEY", key)
+		for _, args := range [][]string{{"--restart"}, {"--stop"}, {"--local", "--restart"}, {"--local", "--stop"}} {
+			var out bytes.Buffer
+			err := run(args, strings.NewReader(""), &out, &out)
+			if err == nil || !strings.Contains(err.Error(), "unknown action") {
+				t.Fatalf("%v should be rejected before worker startup: %v", args, err)
+			}
+		}
+	}
+	var out bytes.Buffer
+	if err := run([]string{"--help"}, strings.NewReader(""), &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "--restart") || strings.Contains(out.String(), "--stop") {
+		t.Fatal("help advertises removed flags")
 	}
 }
 

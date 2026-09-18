@@ -43,7 +43,7 @@ func TestCombinedListPagination(t *testing.T) {
 	// Listing must not invoke a lifecycle command, even with an existing worker.
 	t.Setenv("PATH", t.TempDir())
 	var out, diagnostic bytes.Buffer
-	if err := run(nil, &out, &diagnostic); err != nil {
+	if err := run(nil, strings.NewReader(""), &out, &diagnostic); err != nil {
 		t.Fatal(err)
 	}
 	rows := strings.Split(strings.TrimSpace(out.String()), "\n")
@@ -105,7 +105,7 @@ func TestCombinedListFailures(t *testing.T) {
 			t.Setenv("JOBD_CONTROLLER", server.URL)
 			t.Setenv("PATH", t.TempDir())
 			var out, diagnostic bytes.Buffer
-			err := run([]string{"-l"}, &out, &diagnostic)
+			err := run([]string{"-l"}, strings.NewReader(""), &out, &diagnostic)
 			if (err != nil) != tc.wantError {
 				t.Fatalf("error: %v", err)
 			}
@@ -158,7 +158,7 @@ func TestCombinedListDiscardsIncompleteSource(t *testing.T) {
 	t.Setenv("JOBD_CONTROLLER", server.URL)
 	t.Setenv("PATH", t.TempDir())
 	var out, diagnostic bytes.Buffer
-	if err := run(nil, &out, &diagnostic); err != nil {
+	if err := run(nil, strings.NewReader(""), &out, &diagnostic); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Count(out.String(), "\n") != 2 || !strings.Contains(out.String(), "local-1") {
@@ -173,7 +173,7 @@ func TestCombinedListRejectsArguments(t *testing.T) {
 	t.Setenv("JOBD_API_KEY", "test-key")
 	t.Setenv("JOBD_CONTROLLER", "invalid")
 	var out bytes.Buffer
-	if err := run([]string{"-l", "extra"}, &out, &out); err == nil || err.Error() != "-l takes no arguments" {
+	if err := run([]string{"-l", "extra"}, strings.NewReader(""), &out, &out); err == nil || err.Error() != "-l takes no arguments" {
 		t.Fatalf("error: %v", err)
 	}
 }
@@ -186,7 +186,7 @@ func TestLocalListingDoesNotContactController(t *testing.T) {
 	t.Setenv("JOBD_STATE_DIR", dir)
 	t.Setenv("JOBD_CONTROLLER", server.URL)
 	var out bytes.Buffer
-	if err := run([]string{"--local", "-l"}, &out, &out); err != nil {
+	if err := run([]string{"--local", "-l"}, strings.NewReader(""), &out, &out); err != nil {
 		t.Fatal(err)
 	}
 }

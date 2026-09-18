@@ -1,0 +1,78 @@
+package main
+
+import (
+	"io"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+const help = `Submit commands directly, or use subcommands to manage jobs, secrets, and workers.
+
+Examples:
+  jobd echo hello
+  jobd -- env
+  jobd env set API_KEY --stdin
+  jobd worker restart
+
+Shortcuts:
+  -l               List remote and local jobs (default; --local lists local only)
+  COMMAND [ARGS...] Submit a command and print its job ID
+  -C               Clear finished job records (keep log files)
+  -o [ID]          Print output path on executing host (last run by default)
+  -r [ID]          Remove a non-running job (last added by default)
+  -k [ID]          Request cancellation of a running job (last run by default)
+  -u [ID]          Move a queued job first (last added by default)
+  -U ID1 ID2       Swap two queued jobs
+  -h               Show help
+Use -- to force submission of a reserved name (env, worker, job, help, completion)
+or a command beginning with a dash. Commands run directly, not via a shell.
+Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
+Authentication: JOBD_API_KEY (controller requests only). Without it, local mode is automatic.
+--local uses the same actions against the local worker's single queue.
+Local jobs run without an idle delay when no key is set; otherwise after 30 seconds of controller idle time.
+JOBD_STATE_DIR selects the local worker (default ~/.local/state/jobd-worker).
+Output files remain on the executing worker, not on the CLI machine.
+`
+
+type cliOptions struct {
+	address  string
+	queue    string
+	stateDir string
+	local    bool
+}
+
+func env(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return fallback
+}
+
+func newManagementCommand(options *cliOptions, input io.Reader, out, diagnostic io.Writer) *cobra.Command {
+	root := &cobra.Command{
+		Use: "jobd [COMMAND [ARGS...]]", Short: "Submit jobs and manage jobd", Long: help,
+		SilenceErrors: true, SilenceUsage: true,
+	}
+	root.SetIn(input)
+	root.SetOut(out)
+	root.SetErr(diagnostic)
+	root.PersistentFlags().BoolVar(&options.local, "local", options.local, "Use the local job queue")
+	root.AddCommand(newEnvCommand(options), newWorkerCommand(options), newJobCommand(options))
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	strictCommandGroups(root)
+	return root
+}
+
+// Cobra otherwise prints help successfully for an unknown word under a
+// non-runnable group. Typos must fail, never masquerade as a successful action.
+func strictCommandGroups(command *cobra.Command) {
+	if !command.Runnable() {
+		command.Args = cobra.NoArgs
+		command.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
+	}
+	for _, child := range command.Commands() {
+		strictCommandGroups(child)
+	}
+}

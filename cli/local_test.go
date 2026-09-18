@@ -79,7 +79,11 @@ func TestLocalCLI(t *testing.T) {
 	t.Setenv("JOBD_API_KEY", "must-not-be-sent")
 	t.Setenv("JOBD_CONTROLLER", "invalid-no-http")
 	var out, diagnostic bytes.Buffer
-	call := func(args ...string) error { out.Reset(); diagnostic.Reset(); return run(args, &out, &diagnostic) }
+	call := func(args ...string) error {
+		out.Reset()
+		diagnostic.Reset()
+		return run(args, strings.NewReader(""), &out, &diagnostic)
+	}
 	if err := call("--local", "echo", "a b", ""); err != nil || out.String() != "local-1\n" {
 		t.Fatalf("submit: %s %v", out.String(), err)
 	}
@@ -115,7 +119,7 @@ func TestLocalRequiresWorkerBinary(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "not-created")
 	var out bytes.Buffer
 	t.Setenv("JOBD_STATE_DIR", dir)
-	err := run([]string{"--local", "echo", "hello"}, &out, &out)
+	err := run([]string{"--local", "echo", "hello"}, strings.NewReader(""), &out, &out)
 	if err == nil || !strings.Contains(err.Error(), "jobd-worker not found") {
 		t.Fatalf("error: %v", err)
 	}
@@ -143,7 +147,7 @@ func TestLocalPagination(t *testing.T) {
 			})
 			var out, diagnostic bytes.Buffer
 			t.Setenv("JOBD_STATE_DIR", dir)
-			if err := run([]string{"--local", "-l"}, &out, &diagnostic); err != nil {
+			if err := run([]string{"--local", "-l"}, strings.NewReader(""), &out, &diagnostic); err != nil {
 				t.Fatal(err)
 			}
 			lines := len(strings.Split(strings.TrimSpace(out.String()), "\n"))
