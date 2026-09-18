@@ -73,32 +73,55 @@ it('rejects altered, expired, future-issued and wrong-secret tokens', async () =
   expect(await verifyWorkerKey(admin, key, 110)).toBeNull();
   expect(await verifyWorkerKey(admin, key, 99)).toBeNull();
   expect(await verifyWorkerKey('different', key, 100)).toBeNull();
-  const parts = key.split('.');
-  const claims = JSON.parse(
-    atob(parts[1].replaceAll('-', '+').replaceAll('_', '/')),
-  ) as Record<string, unknown>;
-  for (const changes of [
-    { queue: 'other' },
-    { role: 'admin' },
-    { exp: 10000 },
-  ]) {
-    const altered = btoa(JSON.stringify({ ...claims, ...changes }))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
-      .replace(/=+$/, '');
+  const bytes = Buffer.from(key.slice(4), 'base64url');
+  // Every timestamp, UUID, queue and signature byte is authenticated.
+  for (let i = 0; i < bytes.length; i++) {
+    const altered = Buffer.from(bytes);
+    altered[i] ^= 1;
     expect(
-      await verifyWorkerKey(admin, `${parts[0]}.${altered}.${parts[2]}`, 100),
+      await verifyWorkerKey(admin, `jw2.${altered.toString('base64url')}`, 100),
     ).toBeNull();
   }
   for (const token of [
     '',
     'secret',
     key + '.extra',
+    key + '=',
+    key.replace('jw2.', 'jw1.'),
+    'jobd_worker_v1.' + key.slice(4) + '.signature',
     key.slice(0, -10),
     'x'.repeat(3000),
   ]) {
     expect(await verifyWorkerKey(admin, token, 100)).toBeNull();
   }
+});
+
+it('issues only compact tokens, with unique IDs and bounded lengths', async () => {
+  for (const [queue, length] of [
+    ['a', 80],
+    ['batch', 86],
+    ['a'.repeat(63), 163],
+  ] as const) {
+    const first = await issueWorkerKey(admin, queue, maxWorkerKeySeconds, 100);
+    const second = await issueWorkerKey(admin, queue, maxWorkerKeySeconds, 100);
+    expect(first.api_key).toMatch(/^jw2\.[A-Za-z0-9_-]+$/);
+    expect(first.api_key.length).toBe(length);
+    expect(first.api_key).not.toBe(second.api_key);
+    expect(await verifyWorkerKey(admin, first.api_key, 100)).toMatchObject({
+      version: 2,
+      role: 'worker',
+      queue,
+      iat: 100,
+      exp: 100 + maxWorkerKeySeconds,
+    });
+  }
+  for (const now of [-1, 1.5, 0xffffffff, Number.MAX_SAFE_INTEGER]) {
+    await expect(issueWorkerKey(admin, 'batch', 10, now)).rejects.toThrow();
+  }
+  const boundary = await issueWorkerKey(admin, 'batch', 1, 0xfffffffe);
+  expect(
+    await verifyWorkerKey(admin, boundary.api_key, 0xfffffffe),
+  ).not.toBeNull();
 });
 
 it('allows only job reads and worker lifecycle, scoped to one queue', async () => {

@@ -97,11 +97,21 @@ Every route requires a bearer credential. `JOBD_MASTER_KEY` authorizes all opera
 JOBD_QUEUE=batch jobd auth create-worker-key --duration 24h
 ```
 
+Workers can check their token without accessing queue storage:
+
+```sh
+curl --fail-with-body \
+  -H "Authorization: Bearer $JOBD_WORKER_TOKEN" \
+  "$JOBD_CONTROLLER/queues/$JOBD_QUEUE/auth/worker-key/verify"
+```
+
+`GET /queues/:name/auth/worker-key/verify` requires HTTPS and the worker token as Bearer authorization (not the master key). Returns `{"valid":true,"queue":"batch","expires_at":"..."}` (200). Missing, invalid or expired tokens return 401; a wrong queue or admin key returns 403. An unconfigured controller returns 503. Responses are not cacheable and never include the token. This checks authentication only, not worker connectivity or registration.
+
 `POST /queues/:name/auth/worker-key` accepts `{"duration_seconds":86400}` and returns `{"api_key":"...","expires_at":"...","queue":"batch"}` (201). Requires admin authentication and HTTPS, including localhost. Durations must be whole seconds from 1 through 2592000 (30 days). Responses are not cacheable.
 
 Worker tokens allow job list/detail/latest and registration, heartbeat, claim, output reporting, completion and failure. They cannot submit, delete, clear, cancel or reorder jobs, access `/env`, or issue keys. This is a worker role, not strictly read-only: claims/reporting mutate state, and claims deliver queue secrets. Tokens are queue-scoped, not tied to an individual worker identity; holders are trusted within that queue.
 
-Tokens contain version, role, queue, issue/expiry times and a random ID. HMAC-SHA-256 signatures use an HKDF-derived, purpose-separated signing key from `JOBD_MASTER_KEY`. No worker credentials are stored in SQLite. No individual revocation or automatic renewal is implemented; all requests, including heartbeat/completion, fail after expiry. Replace credentials before expiry and restart workers while idle. Changing `JOBD_MASTER_KEY` invalidates all tokens **and makes existing encrypted secrets unreadable**; do not rotate it just to revoke a worker.
+Worker keys use only the compact `jw2.` format: 80–163 characters depending on queue-name length (86 for `batch`). A base64url binary payload contains issue/expiry times, a random UUID and the queue, followed by a full 32-byte HMAC-SHA-256 signature; the format implies the version and worker role. Signatures use an HKDF-derived, purpose-separated signing key from `JOBD_MASTER_KEY`. Legacy `jobd_worker_v1` tokens are no longer accepted: generate replacement keys and restart workers when upgrading. No worker credentials are stored in SQLite. No individual revocation or automatic renewal is implemented; all requests, including heartbeat/completion, fail after expiry. Replace credentials before expiry and restart workers while idle. Changing `JOBD_MASTER_KEY` invalidates all tokens **and makes existing encrypted secrets unreadable**; do not rotate it just to revoke a worker.
 
 Supply the generated token as client-side `JOBD_WORKER_TOKEN`. To persist it, use a file outside the repository with mode `0600`, loaded into the worker environment by your service manager. The CLI prints the token to stdout and expiry to stderr; it never saves a key file automatically. Do not log tokens.
 

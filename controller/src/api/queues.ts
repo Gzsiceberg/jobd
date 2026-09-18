@@ -16,16 +16,20 @@ export function createQueueApi(
   forward: (name: string, request: Request) => Response | Promise<Response>,
   masterKey?: string,
 ) {
-  const app = new Hono();
+  const app = new Hono<{
+    Variables: {
+      workerClaims: NonNullable<Awaited<ReturnType<typeof verifyWorkerKey>>>;
+    };
+  }>();
   app.use('*', drainBody);
   app.use('*', async (c, next) => {
+    c.header('Cache-Control', 'no-store');
     if (!masterKey?.trim()) {
       return c.json(
         { error: 'Controller authentication is not configured' },
         503,
       );
     }
-    c.header('Cache-Control', 'no-store');
     const authorization = c.req.header('Authorization') ?? '';
     const token = authorization.startsWith('Bearer ')
       ? authorization.slice(7)
@@ -49,7 +53,22 @@ export function createQueueApi(
     ) {
       return c.json({ error: 'Forbidden' }, 403);
     }
+    c.set('workerClaims', claims);
     await next();
+  });
+  app.get('/queues/:name/auth/worker-key/verify', (c) => {
+    if (new URL(c.req.url).protocol !== 'https:') {
+      return c.json({ error: 'Worker key verification requires HTTPS' }, 400);
+    }
+    const claims = c.get('workerClaims');
+    if (!claims) {
+      return c.json({ error: 'A worker token is required' }, 403);
+    }
+    return c.json({
+      valid: true,
+      queue: claims.queue,
+      expires_at: new Date(claims.exp * 1000).toISOString(),
+    });
   });
   app.post('/queues/:name/auth/worker-key', async (c) => {
     // Only administrators reach this endpoint; worker keys are denied above.

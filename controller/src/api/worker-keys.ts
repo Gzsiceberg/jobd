@@ -2,9 +2,14 @@ import { z } from 'zod';
 
 export const maxWorkerKeySeconds = 30 * 24 * 60 * 60;
 const encoder = new TextEncoder();
+const prefix = 'jw2.';
+// Binary layout: uint32 issued-at, uint32 expiry (big endian), 16-byte UUID,
+// ASCII queue (1–63 bytes), then the full 32-byte HMAC-SHA-256 signature.
+const headerBytes = 24;
+const signatureBytes = 32;
 const claimsSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     role: z.literal('worker'),
     queue: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/),
     iat: z.number().int().nonnegative(),
@@ -42,7 +47,7 @@ async function signingKey(secret: string): Promise<CryptoKey> {
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: encoder.encode('jobd.worker-key.v1'),
+      salt: encoder.encode('jobd.worker-key.v2'),
       info: encoder.encode('worker-token-signing'),
     },
     material,
@@ -81,22 +86,33 @@ export async function issueWorkerKey(
   )
     throw new Error('Invalid duration');
   const claims = claimsSchema.parse({
-    version: 1,
+    version: 2,
     role: 'worker',
     queue,
     iat: now,
     exp: now + seconds,
     id: crypto.randomUUID(),
   });
-  const payload =
-    'jobd_worker_v1.' + encode(encoder.encode(JSON.stringify(claims)));
+  if (claims.iat > 0xffffffff || claims.exp > 0xffffffff)
+    throw new Error('Invalid timestamp');
+  const payload = new Uint8Array(headerBytes + queue.length);
+  const view = new DataView(payload.buffer);
+  view.setUint32(0, claims.iat);
+  view.setUint32(4, claims.exp);
+  const id = claims.id.replaceAll('-', '');
+  for (let i = 0; i < 16; i++)
+    payload[8 + i] = parseInt(id.slice(i * 2, i * 2 + 2), 16);
+  payload.set(encoder.encode(queue), headerBytes);
   const signature = await crypto.subtle.sign(
     'HMAC',
     await signingKey(secret),
-    encoder.encode(payload),
+    payload,
   );
+  const token = new Uint8Array(payload.length + signatureBytes);
+  token.set(payload);
+  token.set(new Uint8Array(signature), payload.length);
   return {
-    api_key: payload + '.' + encode(new Uint8Array(signature)),
+    api_key: prefix + encode(token),
     expires_at: new Date(claims.exp * 1000).toISOString(),
     queue,
   };
@@ -108,21 +124,37 @@ export async function verifyWorkerKey(
   now = Math.floor(Date.now() / 1000),
 ) {
   try {
-    if (token.length > 2048) return null;
-    const parts = token.split('.');
-    if (parts.length !== 3 || parts[0] !== 'jobd_worker_v1') return null;
+    if (!token.startsWith(prefix) || token.length > 163) return null;
+    const bytes = decode(token.slice(prefix.length));
+    if (
+      bytes.length < headerBytes + 1 + signatureBytes ||
+      bytes.length > headerBytes + 63 + signatureBytes
+    )
+      return null;
+    const payload = bytes.slice(0, -signatureBytes);
     if (
       !(await crypto.subtle.verify(
         'HMAC',
         await signingKey(secret),
-        decode(parts[2]),
-        encoder.encode(parts[0] + '.' + parts[1]),
+        bytes.slice(-signatureBytes),
+        payload,
       ))
     )
       return null;
-    const claims = claimsSchema.parse(
-      JSON.parse(new TextDecoder().decode(decode(parts[1]))),
-    );
+    const view = new DataView(payload.buffer);
+    const id = Array.from(payload.slice(8, headerBytes), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+    const claims = claimsSchema.parse({
+      version: 2,
+      role: 'worker',
+      queue: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+        payload.slice(headerBytes),
+      ),
+      iat: view.getUint32(0),
+      exp: view.getUint32(4),
+      id: `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`,
+    });
     if (
       claims.iat > now ||
       claims.exp <= now ||
@@ -138,7 +170,11 @@ export async function verifyWorkerKey(
 
 /** Explicit allowlist: new administrative endpoints are denied by default. */
 export function workerRouteAllowed(method: string, path: string): boolean {
-  if (method === 'GET') return /^\/jobs(?:\/(?:latest|[0-9]+))?$/.test(path);
+  if (method === 'GET')
+    return (
+      path === '/auth/worker-key/verify' ||
+      /^\/jobs(?:\/(?:latest|[0-9]+))?$/.test(path)
+    );
   if (method !== 'POST') return false;
   return (
     path === '/workers/register' ||
