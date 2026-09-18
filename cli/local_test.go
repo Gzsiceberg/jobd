@@ -119,29 +119,35 @@ func TestLocalRequiresWorker(t *testing.T) {
 }
 
 func TestLocalPagination(t *testing.T) {
-	var pages atomic.Int32
-	dir := fakeLocalWorker(t, func(w http.ResponseWriter, r *http.Request) {
-		page := int(pages.Add(1)) - 1
-		if r.Method != "GET" || r.URL.Path != "/jobs" || r.URL.RawQuery != fmt.Sprintf("limit=100&offset=%d", page*100) {
-			t.Errorf("pagination: %s %s", r.Method, r.URL)
-		}
-		count := 100
-		if page == 1 {
-			count = 1
-		}
-		jobs := make([]job, count)
-		for i := range jobs {
-			jobs[i] = job{ID: fmt.Sprintf("local-%d", page*100+i+1), Status: "queued", Command: []string{"true"}}
-		}
-		json.NewEncoder(w).Encode(map[string]any{"jobs": jobs})
-	})
-	var out bytes.Buffer
-	t.Setenv("JOBD_STATE_DIR", dir)
-	if err := run([]string{"--local", "-l"}, &out, &out); err != nil {
-		t.Fatal(err)
-	}
-	if pages.Load() != 2 || len(strings.Split(strings.TrimSpace(out.String()), "\n")) != 102 {
-		t.Fatal("local listing did not paginate")
+	for _, apiKey := range []string{"", "must-not-be-sent"} {
+		t.Run(fmt.Sprintf("apiKeySet=%t", apiKey != ""), func(t *testing.T) {
+			t.Setenv("JOBD_API_KEY", apiKey)
+			var pages atomic.Int32
+			dir := fakeLocalWorker(t, func(w http.ResponseWriter, r *http.Request) {
+				page := int(pages.Add(1)) - 1
+				if r.Method != "GET" || r.URL.Path != "/jobs" || r.URL.RawQuery != fmt.Sprintf("limit=100&offset=%d", page*100) {
+					t.Errorf("pagination: %s %s", r.Method, r.URL)
+				}
+				count := 100
+				if page == 1 {
+					count = 1
+				}
+				jobs := make([]job, count)
+				for i := range jobs {
+					jobs[i] = job{ID: fmt.Sprintf("local-%d", page*100+i+1), Status: "queued", Command: []string{"true"}}
+				}
+				json.NewEncoder(w).Encode(map[string]any{"jobs": jobs})
+			})
+			var out, diagnostic bytes.Buffer
+			t.Setenv("JOBD_STATE_DIR", dir)
+			if err := run([]string{"--local", "-l"}, &out, &diagnostic); err != nil {
+				t.Fatal(err)
+			}
+			lines := len(strings.Split(strings.TrimSpace(out.String()), "\n"))
+			if pages.Load() != 2 || lines != 102 {
+				t.Fatalf("local listing did not paginate: got %d pages and %d stdout lines; stderr: %s", pages.Load(), lines, diagnostic.String())
+			}
+		})
 	}
 }
 
