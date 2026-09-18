@@ -11,7 +11,7 @@ import (
 )
 
 func TestRemoveAllRequiresYesConfirmation(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	t.Setenv("JOBD_QUEUE", "batch")
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +46,7 @@ func TestRemoveAllRequiresYesConfirmation(t *testing.T) {
 }
 
 func TestRemoveAllRejectsJobIDAndNeverRetries(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	t.Setenv("JOBD_QUEUE", "batch")
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -84,10 +84,10 @@ func TestRemoveAllLocalConfirmation(t *testing.T) {
 			t.Setenv("JOBD_STATE_DIR", dir)
 			t.Setenv("JOBD_CONTROLLER", "invalid-unused-controller")
 			t.Setenv("JOBD_QUEUE", "remote-batch")
-			t.Setenv("JOBD_API_KEY", "")
+			t.Setenv("JOBD_WORKER_TOKEN", "")
 			args := []string{"job", "remove", "--all"}
 			if explicit {
-				t.Setenv("JOBD_API_KEY", "auth")
+				t.Setenv("JOBD_WORKER_TOKEN", "auth")
 				args = append([]string{"--local"}, args...)
 			}
 			var out, diagnostic bytes.Buffer
@@ -111,7 +111,7 @@ func TestRemoveAllLocalConfirmation(t *testing.T) {
 }
 
 func TestRemoveAllCancellationDoesNotStartLocalWorker(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("JOBD_STATE_DIR", filepath.Join(t.TempDir(), "absent"))
 	err := run([]string{"job", "remove", "--all"}, strings.NewReader("no\n"), io.Discard, io.Discard)

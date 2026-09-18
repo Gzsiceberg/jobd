@@ -11,7 +11,7 @@ import (
 )
 
 func TestCombinedListPagination(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	servePage := func(source string, calls *int) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			offset := *calls * 100
@@ -82,7 +82,7 @@ func TestCombinedListFailures(t *testing.T) {
 		{"remote unavailable without worker", true, false, true, true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("JOBD_API_KEY", "test-key")
+			t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tc.remoteFails {
 					http.Error(w, "offline", 503)
@@ -138,7 +138,7 @@ func TestCombinedListFailures(t *testing.T) {
 }
 
 func TestCombinedListDiscardsIncompleteSource(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("offset") != "0" {
 			http.Error(w, "page failed", 503)
@@ -170,7 +170,7 @@ func TestCombinedListDiscardsIncompleteSource(t *testing.T) {
 }
 
 func TestCombinedListRejectsArguments(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	t.Setenv("JOBD_CONTROLLER", "invalid")
 	var out bytes.Buffer
 	if err := run([]string{"-l", "extra"}, strings.NewReader(""), &out, &out); err == nil || err.Error() != "-l takes no arguments" {
@@ -179,7 +179,7 @@ func TestCombinedListRejectsArguments(t *testing.T) {
 }
 
 func TestLocalListingDoesNotContactController(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("local listing contacted controller") }))
 	defer server.Close()
 	dir := fakeLocalWorker(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"jobs":[]}`) })

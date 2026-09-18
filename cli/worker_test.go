@@ -17,7 +17,8 @@ func TestWorkerCommands(t *testing.T) {
 			dir := t.TempDir()
 			log := filepath.Join(dir, "args")
 			script := `#!/bin/sh
-[ "$JOBD_API_KEY" = 'test-secret' ] || exit 90
+[ "$JOBD_WORKER_TOKEN" = 'test-secret' ] || exit 90
+[ "${JOBD_MASTER_KEY+x}" != x ] || exit 93
 [ "$JOBD_STATE_DIR" = '/custom/state' ] || exit 91
 [ "$JOBD_LOCAL_PERSIST" = true ] || exit 92
 printf '%s\n' "$@" > "$CALL_LOG"
@@ -30,7 +31,8 @@ exit "${WORKER_EXIT:-0}"
 			}
 			t.Setenv("PATH", dir)
 			t.Setenv("CALL_LOG", log)
-			t.Setenv("JOBD_API_KEY", "test-secret")
+			t.Setenv("JOBD_WORKER_TOKEN", "test-secret")
+			t.Setenv("JOBD_MASTER_KEY", "admin-must-not-reach-worker")
 			t.Setenv("JOBD_STATE_DIR", "/custom/state")
 			t.Setenv("JOBD_LOCAL_PERSIST", "true")
 			var out, diagnostic bytes.Buffer
@@ -62,7 +64,7 @@ func TestRemoteDoesNotStartWorker(t *testing.T) {
 	defer server.Close()
 	dir := filepath.Join(t.TempDir(), "absent")
 	t.Setenv("JOBD_STATE_DIR", dir)
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	t.Setenv("JOBD_CONTROLLER", server.URL)
 	t.Setenv("PATH", t.TempDir())
 	var out bytes.Buffer
@@ -86,7 +88,7 @@ func TestWorkerControlRejectsArguments(t *testing.T) {
 func TestRemovedWorkerShortcuts(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	for _, key := range []string{"", "test-key"} {
-		t.Setenv("JOBD_API_KEY", key)
+		t.Setenv("JOBD_WORKER_TOKEN", key)
 		for _, args := range [][]string{{"--restart"}, {"--stop"}, {"--local", "--restart"}, {"--local", "--stop"}} {
 			var out bytes.Buffer
 			err := run(args, strings.NewReader(""), &out, &out)

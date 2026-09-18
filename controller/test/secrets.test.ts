@@ -44,7 +44,7 @@ describe('queue secrets', () => {
       await expect(secrets.set(name, 'secret')).rejects.toThrow('name');
     for (const value of ['a\0b', 'x'.repeat(4097), 'é'.repeat(2049), 123])
       await expect(secrets.set('KEY', value)).rejects.toThrow('Value');
-    for (const name of ['JOBD_CUSTOM', 'JOBD_API_KEY']) {
+    for (const name of ['JOBD_CUSTOM', 'JOBD_WORKER_TOKEN']) {
       await secrets.set(name, 'allowed');
       expect((await secrets.environment())[name]).toBe('allowed');
       secrets.remove(name);

@@ -107,7 +107,7 @@ exec '{actual_mv}' "$@"
         state.mkdir(parents=True)
         identity = "00000000-0000-4000-8000-000000000001\n"
         (state / "worker-id").write_text(identity)
-        run(install, pipe=True, extra={"JOBD_API_KEY": "test-secret", "JOBD_LOCAL_PERSIST": "true"})
+        run(install, pipe=True, extra={"JOBD_WORKER_TOKEN": "test-secret", "JOBD_LOCAL_PERSIST": "true"})
         check(not (state / "local/control.sock").exists(), "installer started a worker")
         for name in ["jobd", "jobd-worker", "jobd-uninstall"]:
             check((bins / name).stat().st_mode & 0o777 == 0o755, "wrong executable mode")

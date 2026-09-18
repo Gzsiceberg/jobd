@@ -76,7 +76,7 @@ func TestLocalCLI(t *testing.T) {
 		}
 	})
 	t.Setenv("JOBD_STATE_DIR", dir)
-	t.Setenv("JOBD_API_KEY", "must-not-be-sent")
+	t.Setenv("JOBD_WORKER_TOKEN", "must-not-be-sent")
 	t.Setenv("JOBD_CONTROLLER", "invalid-no-http")
 	var out, diagnostic bytes.Buffer
 	call := func(args ...string) error {
@@ -105,7 +105,7 @@ func TestLocalCLI(t *testing.T) {
 			t.Fatalf("accepted %v", args)
 		}
 	}
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	if err := call("--local", "-l"); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestLocalRequiresWorkerBinary(t *testing.T) {
 func TestLocalPagination(t *testing.T) {
 	for _, apiKey := range []string{"", "must-not-be-sent"} {
 		t.Run(fmt.Sprintf("apiKeySet=%t", apiKey != ""), func(t *testing.T) {
-			t.Setenv("JOBD_API_KEY", apiKey)
+			t.Setenv("JOBD_WORKER_TOKEN", apiKey)
 			var pages atomic.Int32
 			dir := fakeLocalWorker(t, func(w http.ResponseWriter, r *http.Request) {
 				page := int(pages.Add(1)) - 1

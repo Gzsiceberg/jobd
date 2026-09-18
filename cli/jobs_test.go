@@ -12,7 +12,7 @@ import (
 )
 
 func TestSubmitPreservesArguments(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	var command []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.URL.Path != "/queues/batch/jobs" {
@@ -44,7 +44,7 @@ func TestSubmitPreservesArguments(t *testing.T) {
 }
 
 func TestActions(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	for _, tc := range []struct {
 		args         []string
 		method, path string
@@ -87,7 +87,7 @@ func TestActions(t *testing.T) {
 }
 
 func TestDefaultsAndOutput(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	for _, action := range []string{"-o", "-r", "-u", "-k"} {
 		t.Run(action, func(t *testing.T) {
 			var paths []string
@@ -121,7 +121,7 @@ func TestDefaultsAndOutput(t *testing.T) {
 
 func TestListCancellation(t *testing.T) {
 	t.Setenv("JOBD_STATE_DIR", t.TempDir())
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"jobs":[{"id":"job","status":"running","cancel_requested":1,"command":["sleep","60"]}]}`)
 	}))
@@ -144,7 +144,7 @@ func TestListCancellation(t *testing.T) {
 
 func TestListPagination(t *testing.T) {
 	t.Setenv("JOBD_STATE_DIR", t.TempDir())
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		expected := fmt.Sprintf("/queues/default/jobs?limit=100&offset=%d", calls*100)
@@ -173,7 +173,7 @@ func TestListPagination(t *testing.T) {
 }
 
 func TestErrorsAndNoMutationRetry(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; http.Error(w, `{"error":"unavailable"}`, 503) }))
 	defer server.Close()

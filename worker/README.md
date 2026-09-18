@@ -6,9 +6,9 @@ A Linux daemon. Runs one command at a time.
 
 ## Queue environment
 
-Controller claims deliver the queue's [encrypted-at-rest environment secrets](../controller/README.md#queue-environment-secrets) over HTTPS. The worker keeps decrypted values only in memory and injects them into the assigned job process, overriding inherited values. It does not save them in job records or local storage, or modify its own environment. Local jobs never receive queue secrets. `JOBD_` names are allowed, but `JOBD_API_KEY` and `JOBD_ENV_KEY` are stripped from job environments.
+Controller claims deliver the queue's [encrypted-at-rest environment secrets](../controller/README.md#queue-environment-secrets) over HTTPS. The worker keeps decrypted values only in memory and injects them into the assigned job process, overriding inherited values. It does not save them in job records or local storage, or modify its own environment. Local jobs never receive queue secrets. `JOBD_` names are allowed, but `JOBD_WORKER_TOKEN` and `JOBD_MASTER_KEY` are stripped from job environments.
 
-Changes apply on subsequent claims, not to running processes. Job code can read these values and may expose them through output or network requests; output files are not redacted. The worker host and submitted code must be trusted. Never configure the controller's `JOBD_ENV_KEY` on workers.
+Changes apply on subsequent claims, not to running processes. Job code can read these values and may expose them through output or network requests; output files are not redacted. The worker host and submitted code must be trusted. Never configure the controller's `JOBD_MASTER_KEY` on workers.
 
 ## Build and run
 
@@ -33,7 +33,7 @@ For a standalone Linux binary, set `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`. Use 
 
 Flags override environment values. Interval flags use seconds.
 
-Set `JOBD_API_KEY` to the controller's shared key. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
+Set `JOBD_WORKER_TOKEN` to a generated worker token for this queue (`jobd auth create-worker-key --duration 24h` in a trusted admin shell with `JOBD_MASTER_KEY`). Never configure the admin key on workers. Tokens expire; replace them before expiry and restart while idle. No automatic renewal or individual revocation is implemented. Store persistent tokens in a private `0600` file outside the repository, loaded by your service manager. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
 
 The state directory holds the worker ID. Use separate directories for separate daemons. Never copy an identity to another VM.
 
@@ -42,7 +42,7 @@ The state directory holds the worker ID. Use separate directories for separate d
 Local CLI commands start a detached worker on demand. Remote commands do not. To start a controller worker explicitly:
 
 ```sh
-export JOBD_API_KEY='your-controller-key'
+export JOBD_WORKER_TOKEN='your-generated-worker-token'
 jobd worker restart
 tail -f ~/.local/state/jobd-worker/worker.log
 jobd worker stop
@@ -77,7 +77,7 @@ Worker lifecycle commands use this endpoint to check readiness. An unhealthy res
 ## Execution, output and shutdown
 
 - Commands are argv arrays. Use `sh -c` for shell syntax.
-- Jobs use the worker's user, directory and environment, except `JOBD_API_KEY`. They are **not sandboxed**.
+- Jobs use the worker's user, directory and environment, except `JOBD_WORKER_TOKEN` and `JOBD_MASTER_KEY`. They are **not sandboxed**.
 - Combined stdout/stderr goes to owner-only `/tmp/jobd-*.log` files. Paths are logged. Files stay on the worker; arrange cleanup yourself.
 - Ctrl-C or SIGTERM stops polling. The active process group gets TERM, then KILL after 5 seconds. Final reporting has a separate 10-second deadline.
 - Network errors, 429 and 5xx retry at the poll interval. Other HTTP errors do not.

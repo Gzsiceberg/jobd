@@ -8,7 +8,7 @@ import (
 )
 
 func TestUnknownManagementCommandSuggestsForcedSubmission(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	t.Setenv("PATH", t.TempDir())
 	for _, prefix := range []string{"env", "worker", "job", "completion"} {
 		t.Run(prefix, func(t *testing.T) {

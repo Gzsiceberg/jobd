@@ -20,6 +20,14 @@ type client struct {
 	local  bool
 }
 
+// Admin credentials take precedence in the CLI; workers only use JOBD_WORKER_TOKEN.
+func controllerKey() string {
+	if key := strings.TrimSpace(os.Getenv("JOBD_MASTER_KEY")); key != "" {
+		return key
+	}
+	return strings.TrimSpace(os.Getenv("JOBD_WORKER_TOKEN"))
+}
+
 func newClient(address, queue string) (*client, error) {
 	u, err := url.Parse(address)
 	if err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
@@ -28,7 +36,7 @@ func newClient(address, queue string) (*client, error) {
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`).MatchString(queue) {
 		return nil, fmt.Errorf("invalid queue name")
 	}
-	return &client{base: strings.TrimRight(address, "/") + "/queues/" + queue, apiKey: strings.TrimSpace(os.Getenv("JOBD_API_KEY")), http: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &client{base: strings.TrimRight(address, "/") + "/queues/" + queue, apiKey: controllerKey(), http: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 // Never retry mutations automatically: a lost submission/swap response is ambiguous.
@@ -47,7 +55,7 @@ func (c *client) request(method, path string, body, result any) error {
 	}
 	if !c.local {
 		if c.apiKey == "" {
-			return fmt.Errorf("JOBD_API_KEY is required")
+			return fmt.Errorf("JOBD_MASTER_KEY or JOBD_WORKER_TOKEN is required")
 		}
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
@@ -75,7 +83,7 @@ func (c *client) request(method, path string, body, result any) error {
 		return fmt.Errorf("response exceeds %d MiB", limit>>20)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		if path == "/env" || strings.HasPrefix(path, "/env/") {
+		if path == "/env" || strings.HasPrefix(path, "/env/") || strings.HasPrefix(path, "/auth/") {
 			// Never echo a server/proxy response that might contain a submitted secret.
 			return fmt.Errorf("%s %s: HTTP %d", method, path, res.StatusCode)
 		}

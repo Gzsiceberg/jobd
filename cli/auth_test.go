@@ -17,7 +17,7 @@ func TestAPIKeyAuthentication(t *testing.T) {
 	}))
 	defer server.Close()
 	for _, key := range []string{"", "secret"} {
-		t.Setenv("JOBD_API_KEY", key)
+		t.Setenv("JOBD_WORKER_TOKEN", key)
 		c, err := newClient(server.URL, "default")
 		if err != nil {
 			t.Fatal(err)

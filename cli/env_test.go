@@ -91,8 +91,8 @@ func TestSecretErrorsDoNotEchoResponse(t *testing.T) {
 }
 
 func TestSecretActionsNeverFallBackToLocal(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
-	if err := run([]string{"env", "list"}, strings.NewReader(""), io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "JOBD_API_KEY") {
+	t.Setenv("JOBD_WORKER_TOKEN", "")
+	if err := run([]string{"env", "list"}, strings.NewReader(""), io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "JOBD_WORKER_TOKEN") {
 		t.Fatalf("error: %v", err)
 	}
 	if err := run([]string{"--local", "env", "list"}, strings.NewReader(""), io.Discard, io.Discard); err == nil {

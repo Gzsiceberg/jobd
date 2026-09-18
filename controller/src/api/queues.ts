@@ -1,29 +1,88 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { drainBody } from './drain-body';
+import {
+  isAdminKey,
+  issueWorkerKey,
+  maxWorkerKeySeconds,
+  verifyWorkerKey,
+  workerRouteAllowed,
+} from './worker-keys';
 
 const queueName = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/);
 
 /** Route a named queue to its own storage instance; keep internal routes unchanged. */
 export function createQueueApi(
   forward: (name: string, request: Request) => Response | Promise<Response>,
-  apiKey?: string,
+  masterKey?: string,
 ) {
   const app = new Hono();
   app.use('*', drainBody);
   app.use('*', async (c, next) => {
-    if (!apiKey?.trim()) {
+    if (!masterKey?.trim()) {
       return c.json(
         { error: 'Controller authentication is not configured' },
         503,
       );
     }
+    c.header('Cache-Control', 'no-store');
     const authorization = c.req.header('Authorization') ?? '';
-    if (authorization !== `Bearer ${apiKey}`) {
+    const token = authorization.startsWith('Bearer ')
+      ? authorization.slice(7)
+      : '';
+    if (token && (await isAdminKey(token, masterKey))) {
+      await next();
+      return;
+    }
+    const claims = await verifyWorkerKey(masterKey, token);
+    if (!claims) {
       c.header('WWW-Authenticate', 'Bearer');
       return c.json({ error: 'Unauthorized' }, 401);
     }
+    const match = /^\/queues\/([a-z0-9][a-z0-9_-]{0,62})(\/.*)$/.exec(
+      new URL(c.req.url).pathname,
+    );
+    if (
+      !match ||
+      match[1] !== claims.queue ||
+      !workerRouteAllowed(c.req.method, match[2])
+    ) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
     await next();
+  });
+  app.post('/queues/:name/auth/worker-key', async (c) => {
+    // Only administrators reach this endpoint; worker keys are denied above.
+    if (new URL(c.req.url).protocol !== 'https:') {
+      return c.json({ error: 'Worker key generation requires HTTPS' }, 400);
+    }
+    const name = queueName.safeParse(c.req.param('name'));
+    if (!name.success) return c.json({ error: 'Invalid queue name' }, 400);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON' }, 400);
+    }
+    const duration = z
+      .object({
+        duration_seconds: z.number().int().min(1).max(maxWorkerKeySeconds),
+      })
+      .strict()
+      .safeParse(body);
+    if (!duration.success)
+      return c.json(
+        { error: 'duration_seconds must be an integer between 1 and 2592000' },
+        400,
+      );
+    return c.json(
+      await issueWorkerKey(
+        masterKey!,
+        name.data,
+        duration.data.duration_seconds,
+      ),
+      201,
+    );
   });
   app.all('/queues/:name/*', (c) => {
     const name = queueName.safeParse(c.req.param('name'));

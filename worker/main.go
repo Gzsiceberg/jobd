@@ -101,7 +101,7 @@ func runWithContext(ctx context.Context, config Config) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	var client *ControllerClient
-	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) != "" {
+	if strings.TrimSpace(os.Getenv("JOBD_WORKER_TOKEN")) != "" {
 		var err error
 		client, err = NewControllerClient(config.Controller, "", config.Queue, config.PollInterval)
 		if err != nil {
@@ -109,7 +109,7 @@ func runWithContext(ctx context.Context, config Config) error {
 		}
 		defer client.http.CloseIdleConnections()
 	} else {
-		slog.Info("Local-only mode; set JOBD_API_KEY and restart worker to enable controller jobs")
+		slog.Info("Local-only mode; set JOBD_WORKER_TOKEN and restart worker to enable controller jobs")
 	}
 	identity, err := OpenWorkerIdentity(config.StateDir)
 	if err != nil {

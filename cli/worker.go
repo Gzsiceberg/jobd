@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 func workerBinary() (string, error) {
@@ -32,6 +33,13 @@ func manageWorker(action, address, queue string, out, diagnostic io.Writer) erro
 		return err
 	}
 	command := exec.Command(binary, action, "--controller", address, "--queue", queue)
+	// The encryption/admin credential must never reach the worker daemon.
+	command.Env = []string{}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "JOBD_MASTER_KEY=") {
+			command.Env = append(command.Env, entry)
+		}
+	}
 	command.Stdout, command.Stderr = out, diagnostic
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("jobd-worker %s: %w", action, err)

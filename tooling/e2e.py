@@ -8,6 +8,7 @@ Run from any directory: uv run tooling/e2e.py
 Uses temporary binaries/state, two local workers, and a loopback controller.
 """
 
+import base64
 import http.client
 import json
 import os
@@ -15,6 +16,7 @@ from pathlib import Path
 import signal
 import secrets
 import socket
+import ssl
 import subprocess
 import tempfile
 import time
@@ -54,12 +56,20 @@ def main():
         env = {key: value for key, value in os.environ.items() if not key.startswith("JOBD_")}
         env.update({"WRANGLER_SEND_METRICS": "false", "CI": "true"})
         port = free_port()
-        address = f"http://127.0.0.1:{port}"
-        env.update({"JOBD_CONTROLLER": address, "JOBD_QUEUE": "e2e", "JOBD_API_KEY": secrets.token_hex(32),
+        address = f"https://127.0.0.1:{port}"
+        cert, cert_key = directory / "cert.pem", directory / "key.pem"
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                        "-keyout", str(cert_key), "-out", str(cert), "-days", "1",
+                        "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost"],
+                       check=True, capture_output=True)
+        tls = ssl.create_default_context(cafile=str(cert))
+        env.update({"JOBD_CONTROLLER": address, "JOBD_QUEUE": "e2e",
+                    "JOBD_MASTER_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
+                    "SSL_CERT_FILE": str(cert),
                     "JOBD_STATE_DIR": str(directory / "unused-local-state")})
         # Keep the test key separate from developer secrets and out of argv/logs.
         dev_vars = directory / "controller.env"
-        dev_vars.write_text("JOBD_API_KEY=" + env["JOBD_API_KEY"] + "\n")
+        dev_vars.write_text("JOBD_MASTER_KEY=" + env["JOBD_MASTER_KEY"] + "\n")
         dev_vars.chmod(0o600)
         cli = directory / "jobd"
         worker = directory / "jobd-worker"
@@ -67,8 +77,8 @@ def main():
         def api(path, queue=None):
             queue = queue or env["JOBD_QUEUE"]
             request = urllib.request.Request(f"{address}/queues/{queue}{path}",
-                                             headers={"Authorization": "Bearer " + env["JOBD_API_KEY"]})
-            with urllib.request.urlopen(request, timeout=2) as response:
+                                             headers={"Authorization": "Bearer " + env["JOBD_MASTER_KEY"]})
+            with urllib.request.urlopen(request, timeout=2, context=tls) as response:
                 return json.load(response)
 
         def local_api(state, path):
@@ -112,9 +122,14 @@ def main():
             check([line.split()[0] for line in listed[1:]] == list(expected), f"CLI order: {listed}")
 
         def start(name, command, cwd):
+            child_env = env.copy()
+            if command[0] == str(worker):
+                env["JOBD_WORKER_TOKEN"] = call("auth", "create-worker-key", "--duration", "1h").stdout.strip()
+                child_env["JOBD_WORKER_TOKEN"] = env["JOBD_WORKER_TOKEN"]
+                child_env.pop("JOBD_MASTER_KEY", None)
             log = directory / f"{name}.log"
             with log.open("w") as stream:
-                process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                process = subprocess.Popen(command, cwd=cwd, env=child_env, stdin=subprocess.DEVNULL,
                                            stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             processes.append((name, process, log))
             return process
@@ -134,7 +149,8 @@ def main():
             controller = start("controller", [
                 "pnpm", "exec", "wrangler", "dev", "--local", "--ip", "127.0.0.1",
                 "--port", str(port), "--inspector-port", "0", "--persist-to", str(directory / "controller-state"),
-                "--env-file", str(dev_vars),
+                "--env-file", str(dev_vars), "--local-protocol", "https",
+                "--https-key-path", str(cert_key), "--https-cert-path", str(cert),
             ], ROOT / "controller")
 
             def ready():
@@ -149,11 +165,18 @@ def main():
                 request = urllib.request.Request(f"{address}/queues/e2e/jobs",
                     headers={} if authorization is None else {"Authorization": authorization})
                 try:
-                    urllib.request.urlopen(request, timeout=2).close()
+                    urllib.request.urlopen(request, timeout=2, context=tls).close()
                     raise AssertionError("Controller accepted invalid credentials")
                 except urllib.error.HTTPError as error:
                     check(error.code == 401, "expected unauthorized response")
-            print("PASS API authentication rejects absent/incorrect keys", flush=True)
+            env["JOBD_WORKER_TOKEN"] = call("auth", "create-worker-key", "--duration", "1h").stdout.strip()
+            worker_only = {"JOBD_MASTER_KEY": ""}
+            call("job", "list", extra_env=worker_only)
+            for args in [("echo", "forbidden"), ("-C",), ("-r", "1"), ("env", "list"),
+                         ("auth", "create-worker-key", "--duration", "1h")]:
+                call(*args, success=False, extra_env=worker_only)
+            call("job", "list", success=False, extra_env=worker_only | {"JOBD_QUEUE": "other"})
+            print("PASS API authentication, CLI key generation, worker permissions and queue scope", flush=True)
             for flag in ["-h", "--help"]:
                 check("-U ID1 ID2" in call(flag, extra_env={"JOBD_CONTROLLER": "invalid"}).stdout, "help missing actions")
             check(call().stdout == call("-l").stdout, "default action is not list")
@@ -162,8 +185,10 @@ def main():
             call("-C")
             print("PASS help, default list, empty-queue defaults", flush=True)
 
+            call("env", "set", "JOBD_TEST_SECRET=queue-secret")
+            check(call("env", "list").stdout.strip() == "JOBD_TEST_SECRET", "admin env access failed")
             gate_a = directory / "release-a"
-            a = submit("sh", "-c", 'printf "hello stdout\\n"; printf "hello stderr\\n" >&2; while [ ! -f "$1" ]; do sleep 0.1; done', "sh", str(gate_a))
+            a = submit("sh", "-c", 'set -eu; test "$JOBD_TEST_SECRET" = queue-secret; test "${JOBD_WORKER_TOKEN+x}" != x; test "${JOBD_MASTER_KEY+x}" != x; printf "hello stdout\\n"; printf "hello stderr\\n" >&2; while [ ! -f "$1" ]; do sleep 0.1; done', "sh", str(gate_a))
             b = submit("echo", "b with spaces")
             c = submit("echo", "c")
             check([a, b, c] == ["1", "2", "3"], "IDs are not per-queue auto-increment numbers")
@@ -358,8 +383,8 @@ def main():
             local_worker = start("worker-local-first", local_worker_command, ROOT)
             eventually("local worker socket", lambda: (local_state / "local/control.sock").exists())
             local_id = call(*local_options, "sh", "-c",
-                'set -eu; test -f "$1"; test "${JOBD_API_KEY+x}" != x; printf "local output\\n"',
-                "sh", str(remote_marker), extra_env={"JOBD_API_KEY": ""}).stdout.strip()
+                'set -eu; test -f "$1"; test "${JOBD_WORKER_TOKEN+x}" != x; printf "local output\\n"',
+                "sh", str(remote_marker), extra_env={"JOBD_WORKER_TOKEN": ""}).stdout.strip()
             check(local_id.startswith("local-"), "local submission ID")
             eventually("controller job runs before local", lambda: api(f"/jobs/{remote_id}")["status"] == "succeeded")
             output_paths.add(api(f"/jobs/{remote_id}")["output_path"])
@@ -408,7 +433,8 @@ def main():
             check(local_worker.returncode == 0, "local worker shutdown failed")
             print("PASS persistent local submission, controller priority, immediate local execution, local cancel/reorder/default IDs/output and key filtering", flush=True)
             # No credentials: both binaries automatically select local-only mode.
-            env.pop("JOBD_API_KEY")
+            env.pop("JOBD_WORKER_TOKEN")
+            env.pop("JOBD_MASTER_KEY")
             env.pop("JOBD_LOCAL_PERSIST")
             env["JOBD_CONTROLLER"] = "invalid-unused-controller"
             no_key_state = directory / "worker-no-key"
@@ -418,10 +444,10 @@ def main():
             check((no_key_state / "local/control.sock").exists(), "CLI did not start worker")
             for args in [(), ("-l",)]:
                 listed = call(*args)
-                check("JOBD_API_KEY" in listed.stderr and "jobd worker restart" in listed.stderr,
+                check("JOBD_WORKER_TOKEN" in listed.stderr and "jobd worker restart" in listed.stderr,
                       "no-key listing did not explain controller setup")
                 check("Warning" not in listed.stdout, "warning polluted job listing")
-            no_key_id = call("sh", "-c", 'test "${JOBD_API_KEY+x}" != x; echo no-key-output').stdout.strip()
+            no_key_id = call("sh", "-c", 'test "${JOBD_WORKER_TOKEN+x}" != x; echo no-key-output').stdout.strip()
             check(no_key_id.startswith("local-"), "no-key submission was not local")
             eventually("no-key job completes without idle delay", lambda: "succeeded" in call("-l").stdout, timeout=10)
             path = call("-o", no_key_id).stdout.strip()

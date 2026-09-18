@@ -11,7 +11,7 @@ The CLI remains a single Go package, organized by responsibility:
 - `main.go`: process entry point and exit handling.
 - `root.go`: Cobra root, shared options, help, and command registration.
 - `dispatch.go`: direct submission, short actions, and management dispatch.
-- `cmd_job.go`, `cmd_env.go`, `cmd_worker.go`: command definitions and argument parsing.
+- `cmd_job.go`, `cmd_env.go`, `cmd_worker.go`, `cmd_auth.go`: command definitions and argument parsing.
 - `jobs.go`, `env.go`, `worker.go`: shared operations, independent of Cobra.
 - `client.go`: controller HTTP transport and authentication.
 - `local.go`: local worker socket connection.
@@ -34,22 +34,35 @@ Examples below use the installed `jobd`. For source builds, use `./cli/jobd`.
 
 - `JOBD_CONTROLLER`: defaults to `https://jobd-controller.aflashsheng.workers.dev`.
 - `JOBD_QUEUE`: defaults to `default`.
-- `JOBD_API_KEY`: the controller's shared key. No key file is written.
+- `JOBD_MASTER_KEY`: admin credential for all controller operations, including env and worker-key generation. Takes precedence when both keys are set.
+- `JOBD_WORKER_TOKEN`: generated, expiring worker token for job reads and worker operations in its authorized queue. Cannot submit/manage jobs or env. No key file is written.
 
 Set the endpoint and queue only through `JOBD_CONTROLLER` and `JOBD_QUEUE`; there are no `--controller` or `--queue` flags. For example, `JOBD_QUEUE=batch jobd job list`. For direct submission and short actions, put `--local` **before** the action or executable; everything after the executable is passed through unchanged. Use HTTPS outside localhost.
 
-A missing or blank key selects local mode for job commands. Listings warn to set the key and restart the worker. Environment management never falls back to local mode.
+When both credentials are missing or blank, job commands select local mode. Listings warn to set the key and restart the worker. Environment management never falls back to local mode.
+
+## Generate a worker key
+
+In a trusted admin shell with `JOBD_MASTER_KEY` set:
+
+```sh
+export JOBD_WORKER_TOKEN="$(JOBD_QUEUE=batch jobd auth create-worker-key --duration 24h)"
+```
+
+The controller issues a token for `JOBD_QUEUE` (default `default`). `--duration` is required: whole seconds from `1s` through `720h` (30 days), using Go duration syntax such as `24h` or `168h`, not `7d`. HTTPS is required, including localhost. Token goes to stdout; expiry goes to stderr. Only send the generated token to the worker machine; never copy `JOBD_MASTER_KEY` there.
+
+Worker tokens allow listing/inspecting jobs and the full worker lifecycle, not job submission or administration. They are stateless and cannot be individually revoked before expiry. All requests fail after expiry; renew manually before expiry and restart workers while idle. For persistent storage, use a private `0600` file outside the repository, loaded by your service manager. No key file is created automatically.
 
 ## Restart the local worker
 
 Start or restart a [detached worker](../worker/README.md#background-worker):
 
 ```sh
-export JOBD_API_KEY='your-controller-key'
+export JOBD_WORKER_TOKEN='your-generated-worker-token'
 jobd worker restart
 ```
 
-The worker inherits the CLI's directory and environment. `JOBD_CONTROLLER` and `JOBD_QUEUE` apply. No key file is written. Restart cancels active work and waits for shutdown before starting a replacement.
+The worker inherits the CLI's directory and environment except `JOBD_MASTER_KEY`, which the CLI strips before launching it. `JOBD_CONTROLLER` and `JOBD_QUEUE` apply. No key file is written. Restart cancels active work and waits for shutdown before starting a replacement.
 
 Use `jobd worker stop` to stop it, or `jobd worker start` to start it only if needed. Logs append to `<state-dir>/worker.log`; arrange rotation yourself. It survives SSH disconnects, but not crashes or reboots.
 
@@ -110,7 +123,7 @@ JOBD_QUEUE=batch jobd job remove --all
 jobd --local job remove --all
 ```
 
-The command displays the target and asks you to type `yes` and press Enter. Nothing is removed on an empty answer, mismatch, or input error. There is no `--yes` bypass, and `--all` cannot be combined with a job ID. Without `JOBD_API_KEY`, the target is the local queue, as with other job actions; the prompt explicitly identifies it.
+The command displays the target and asks you to type `yes` and press Enter. Nothing is removed on an empty answer, mismatch, or input error. There is no `--yes` bypass, and `--all` cannot be combined with a job ID. Without either `JOBD_MASTER_KEY` or `JOBD_WORKER_TOKEN`, the target is the local queue, as with other job actions; the prompt explicitly identifies it.
 
 This atomically removes **queued and finished** records in the selected queue. Running jobs are kept and counted in the result. Secrets, worker registrations, output files, and job ID sequences are preserved. The deletion applies to jobs present when the operation executes, including submissions made while the prompt was open. Jobs claimed before deletion are kept as running. No requests or worker startup occur until confirmation; failed requests are not retried automatically.
 
@@ -128,7 +141,7 @@ JOBD_QUEUE=batch jobd env delete API_KEY
 
 `env set KEY[=VALUE] [KEY[=VALUE] ...]` sets one or more secrets. For a bare name, such as `jobd env set API_KEY`, type its value on stdin and press Enter; the line ending is not stored. Terminal input is hidden (no echo). After Enter, a preview shows the character count and, for values longer than 12 characters, the first and last four characters. These fragments remain visible in terminal scrollback. `Save? [Y/n]` accepts Enter or `y` to confirm; `n` lets you re-enter the value. All interactive values must be confirmed before any upload. Piped input is also supported without previews or confirmation. Multiple bare names read one value each, and can be mixed with `KEY=VALUE` arguments. An empty line sets an empty value; EOF without a value is an error. Quote assignments containing spaces or shell metacharacters, for example `jobd env set 'MESSAGE=hello world'`. Empty values (`KEY=`) and additional `=` characters in values are supported. `--stdin` is no longer supported. Values passed as arguments may appear in shell history and process listings; the CLI never prints their full values. Maximum value size is 4096 UTF-8 bytes; NUL is forbidden. All assignments are validated before uploading, then saved sequentially; a failed request does not roll back earlier updates. Listing shows names only.
 
-These actions require `JOBD_API_KEY` and HTTPS, including during local development; they never fall back to local mode. Queue values override inherited variables in controller job processes without changing the worker environment. Changes affect subsequent claims, not running jobs. Local jobs receive no queue secrets. Do not print secrets from jobs: output files are not redacted. All holders of the shared controller key remain trusted across all queues.
+These actions require `JOBD_MASTER_KEY` and HTTPS, including during local development; they never fall back to local mode. Queue values override inherited variables in controller job processes without changing the worker environment. Changes affect subsequent claims, not running jobs. Local jobs receive no queue secrets. Do not print secrets from jobs: output files are not redacted. Admin key holders are trusted across all queues; worker token holders can receive secrets through claims in their authorized queue.
 
 ## Local fallback jobs
 

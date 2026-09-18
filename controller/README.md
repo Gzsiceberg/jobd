@@ -8,7 +8,7 @@ TypeScript, Hono and Zod. Each queue has a SQLite-backed Cloudflare Durable Obje
 
 Prefix every route with `/queues/:name`. Bodies are JSON. Unprefixed routes are not served.
 
-Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names select separate storage, not separate permissions.
+Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names select separate storage. Worker keys are scoped to one queue; the admin key authorizes every queue.
 
 Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use separate daemons and state directories for more queues. There is no queue registry or cross-queue claiming.
 
@@ -50,15 +50,15 @@ Lists use pages of up to 100, not snapshots. Concurrent changes can affect pagin
 
 ## Queue environment secrets
 
-Configure a **separate** encryption key before setting queue secrets:
+Configure the admin/encryption key before use (preserve the existing value if already configured):
 
 ```sh
-openssl rand -base64 32 | pnpm --filter jobd-controller exec wrangler secret put JOBD_ENV_KEY
+openssl rand -base64 32 | pnpm --filter jobd-controller exec wrangler secret put JOBD_MASTER_KEY
 ```
 
-`JOBD_ENV_KEY` is a base64-encoded random 32-byte AES key stored as a Cloudflare Workers secret, never in SQLite or worker configuration. Keep a secure backup if you need recovery. Do not replace it while encrypted values exist: they will become unreadable. Key rotation/re-encryption is not implemented; to replace the key, pause workers, delete existing queue secrets, replace the key, and re-provision values from their authoritative source. Retain the old key for any backups that still need it.
+`JOBD_MASTER_KEY` is a base64-encoded random 32-byte AES key stored as a Cloudflare Workers secret, never in SQLite or worker configuration. Keep a secure backup if you need recovery. Do not replace it while encrypted values exist: they will become unreadable. Key rotation/re-encryption is not implemented; to replace the key, pause workers, delete existing queue secrets, replace the key, and re-provision values from their authoritative source. Retain the old key for any backups that still need it.
 
-Queue-prefixed routes (same shared bearer authentication):
+Queue-prefixed routes (admin bearer authentication with `JOBD_MASTER_KEY` only):
 
 | Method | Route        | Body / response                      |
 | ------ | ------------ | ------------------------------------ |
@@ -72,7 +72,7 @@ Values use AES-256-GCM with a fresh 96-bit nonce for each write. Authenticated d
 
 Claims include a separate `environment` map when a job is assigned; it is not part of stored job records. Queues with secrets require HTTPS claims. Decryption failures prevent assignment, rather than running without the required environment. Responses use `Cache-Control: no-store`. Updates apply at the next successful claim (including retries), not to already-running processes. Local jobs do not receive queue secrets.
 
-**Security boundary:** the existing API key grants access to all queues. Anyone able to submit jobs can retrieve their secrets by executing code. Controller operators, Cloudflare, and the executing worker must be trusted. Values exist in controller/worker memory and job process environments; application output is **not redacted**. Jobs can write secrets to output files, and host administrators or sufficiently privileged processes can read them. Encryption at rest does not protect a compromised controller or worker. Deletion does not erase historical backups or revoke an API key at its provider.
+**Security boundary:** `JOBD_MASTER_KEY` grants access to all queues. Worker keys can claim jobs and receive decrypted secrets in their authorized queue, despite being unable to manage environment settings. Anyone able to submit jobs can retrieve their secrets by executing code. Controller operators, Cloudflare, and the executing worker must be trusted. Values exist in controller/worker memory and job process environments; application output is **not redacted**. Jobs can write secrets to output files, and host administrators or sufficiently privileged processes can read them. Encryption at rest does not protect a compromised controller or worker. Deletion does not erase historical backups or revoke an API key at its provider.
 
 ## Deployment and limits
 
@@ -81,17 +81,49 @@ From the repository root:
 ```sh
 pnpm --filter jobd-controller exec wrangler login
 pnpm --filter jobd-controller deploy
-export JOBD_API_KEY="$(openssl rand -base64 32)"
-printf '%s' "$JOBD_API_KEY" | pnpm --filter jobd-controller exec wrangler secret put JOBD_API_KEY
+# Only for a NEW deployment. For an existing deployment, keep its JOBD_MASTER_KEY.
+export JOBD_MASTER_KEY="$(openssl rand -base64 32)"
+printf '%s' "$JOBD_MASTER_KEY" | pnpm --filter jobd-controller exec wrangler secret put JOBD_MASTER_KEY
 ```
 
-Use this same key in the CLI and workers. For development, put it in `controller/.dev.vars` (gitignored).
+Use `JOBD_MASTER_KEY` only in the controller and trusted admin CLI environments, never on workers. For development, put it in `controller/.dev.vars` (gitignored). The controller accepts only the master key or signed worker tokens, not legacy shared API keys.
 
-Every route requires `Authorization: Bearer <JOBD_API_KEY>`. Invalid or missing credentials return 401. An unset controller key returns 503.
+Every route requires a bearer credential. `JOBD_MASTER_KEY` authorizes all operations. Generated worker tokens authorize only the routes below in their named queue. Invalid, expired or missing credentials return 401; forbidden operations/queues return 403. An unset controller `JOBD_MASTER_KEY` returns 503.
+
+### Worker keys
+
+```sh
+# In a trusted admin shell with JOBD_MASTER_KEY and JOBD_CONTROLLER set:
+JOBD_QUEUE=batch jobd auth create-worker-key --duration 24h
+```
+
+`POST /queues/:name/auth/worker-key` accepts `{"duration_seconds":86400}` and returns `{"api_key":"...","expires_at":"...","queue":"batch"}` (201). Requires admin authentication and HTTPS, including localhost. Durations must be whole seconds from 1 through 2592000 (30 days). Responses are not cacheable.
+
+Worker tokens allow job list/detail/latest and registration, heartbeat, claim, output reporting, completion and failure. They cannot submit, delete, clear, cancel or reorder jobs, access `/env`, or issue keys. This is a worker role, not strictly read-only: claims/reporting mutate state, and claims deliver queue secrets. Tokens are queue-scoped, not tied to an individual worker identity; holders are trusted within that queue.
+
+Tokens contain version, role, queue, issue/expiry times and a random ID. HMAC-SHA-256 signatures use an HKDF-derived, purpose-separated signing key from `JOBD_MASTER_KEY`. No worker credentials are stored in SQLite. No individual revocation or automatic renewal is implemented; all requests, including heartbeat/completion, fail after expiry. Replace credentials before expiry and restart workers while idle. Changing `JOBD_MASTER_KEY` invalidates all tokens **and makes existing encrypted secrets unreadable**; do not rotate it just to revoke a worker.
+
+Supply the generated token as client-side `JOBD_WORKER_TOKEN`. To persist it, use a file outside the repository with mode `0600`, loaded into the worker environment by your service manager. The CLI prints the token to stdout and expiry to stderr; it never saves a key file automatically. Do not log tokens.
+
+### Migration
+
+Rename the previous `JOBD_ENV_KEY` secret to `JOBD_MASTER_KEY`, preserving its exact value. **Do not generate a replacement value:** existing encrypted queue secrets and signed worker tokens depend on it. From a trusted admin shell containing the existing secret:
+
+```sh
+printf '%s' "$JOBD_ENV_KEY" | pnpm --filter jobd-controller exec wrangler secret put JOBD_MASTER_KEY
+export JOBD_MASTER_KEY="$JOBD_ENV_KEY"
+unset JOBD_ENV_KEY
+pnpm --filter jobd-controller deploy
+# After deploying the updated controller:
+pnpm --filter jobd-controller exec wrangler secret delete JOBD_ENV_KEY
+pnpm --filter jobd-controller exec wrangler secret delete JOBD_API_KEY
+```
+
+Rename the setting in controller `.dev.vars` and admin environments too. Rename client-side `JOBD_API_KEY` to `JOBD_WORKER_TOKEN` if it already contains a generated token; legacy shared keys must be replaced with generated worker tokens. Restart workers with the new variable name. There are no aliases for the old variable names. The controller must not have a `JOBD_WORKER_TOKEN` secret.
 
 The default endpoint is `https://jobd-controller.aflashsheng.workers.dev`; `workers_dev` is enabled. Set the secret before use. Self-hosters should set their own endpoint explicitly.
 
-**The shared key grants command execution in every queue. There is no sandbox.** Run workers unprivileged.
+**The admin key grants command execution in every queue. There is no sandbox.** Run workers unprivileged.
 
 This is not a production scheduler:
 

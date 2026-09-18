@@ -24,7 +24,7 @@ func TestDetachedWorkerLifecycle(t *testing.T) {
 	}
 	dir := t.TempDir()
 	t.Setenv("JOBD_STATE_DIR", dir)
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	t.Setenv("JOBD_LOCAL_PERSIST", "true")
 	call := func(action string) error {
 		cmd := exec.Command(binary, action, "--poll-interval", "0.05")

@@ -16,7 +16,7 @@ import (
 func TestMissingAPIKeyRunsLocalJobs(t *testing.T) {
 	for _, key := range []string{"", "   "} {
 		t.Run("key="+key, func(t *testing.T) {
-			t.Setenv("JOBD_API_KEY", key)
+			t.Setenv("JOBD_WORKER_TOKEN", key)
 			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1) }))
 			defer server.Close()
@@ -92,7 +92,7 @@ func TestMissingAPIKeyRunsLocalJobs(t *testing.T) {
 }
 
 func TestMissingAPIKeyDoesNotInitializeClient(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Local-only startup ignores controller configuration, but initializes local state.
@@ -102,19 +102,19 @@ func TestMissingAPIKeyDoesNotInitializeClient(t *testing.T) {
 }
 
 func TestConfiguredAPIKeyProceedsWithStartup(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "secret")
+	t.Setenv("JOBD_WORKER_TOKEN", "secret")
 	if err := runWithContext(context.Background(), Config{Controller: "invalid", Queue: "default"}); err == nil {
 		t.Fatal("expected client initialization")
 	}
 }
 
 func TestClientRejectsMissingAPIKey(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	client, err := NewControllerClient("http://localhost:1", "worker", "default", time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Register(context.Background(), "host"); err == nil || err.Error() != "JOBD_API_KEY is required" {
+	if _, err := client.Register(context.Background(), "host"); err == nil || err.Error() != "JOBD_WORKER_TOKEN is required" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

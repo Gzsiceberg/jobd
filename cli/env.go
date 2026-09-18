@@ -118,7 +118,7 @@ func runEnv(c *client, action string, args []string, out io.Writer) error {
 		return fmt.Errorf("queue environment requires a remote HTTPS controller")
 	}
 	if c.apiKey == "" {
-		return fmt.Errorf("JOBD_API_KEY is required")
+		return fmt.Errorf("JOBD_MASTER_KEY is required (JOBD_WORKER_TOKEN worker tokens cannot manage env)")
 	}
 	if action == "list" {
 		if len(args) != 0 {

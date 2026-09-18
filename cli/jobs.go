@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -36,13 +35,13 @@ func runAction(options cliOptions, action string, args []string, out, diagnostic
 	if action == "-l" && len(args) != 0 {
 		return fmt.Errorf("-l takes no arguments")
 	}
-	if !local && action == "-l" && strings.TrimSpace(os.Getenv("JOBD_API_KEY")) != "" {
+	if !local && action == "-l" && controllerKey() != "" {
 		return listCombined(address, queue, stateDir, out, diagnostic)
 	}
-	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == "" {
+	if controllerKey() == "" {
 		local = true
 		if action == "-l" {
-			fmt.Fprintln(diagnostic, "Warning: JOBD_API_KEY is not set; using local mode. Set JOBD_API_KEY and run jobd worker restart to enable controller jobs.")
+			fmt.Fprintln(diagnostic, "Warning: neither JOBD_MASTER_KEY nor JOBD_WORKER_TOKEN is set; using local mode. Set JOBD_WORKER_TOKEN and run jobd worker restart to enable controller jobs.")
 		}
 	}
 	var c *client
@@ -63,7 +62,7 @@ func runAction(options cliOptions, action string, args []string, out, diagnostic
 
 // Confirmation happens before any network request or local worker startup.
 func removeAllJobs(options cliOptions, input io.Reader, out, diagnostic io.Writer) error {
-	options.local = options.local || strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == ""
+	options.local = options.local || controllerKey() == ""
 	target := fmt.Sprintf("queue %q on %s", options.queue, options.address)
 	var c *client
 	var err error

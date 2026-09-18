@@ -13,7 +13,7 @@ import (
 )
 
 func TestClaimQueueEnvironmentIsMemoryOnly(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer auth" {
 			t.Error("missing auth")
@@ -43,7 +43,7 @@ func TestClaimQueueEnvironmentIsMemoryOnly(t *testing.T) {
 }
 
 func TestClaimSupportsEscapedEnvironmentWithinLimits(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	environment := make(map[string]string)
 	for i := 0; i < 64; i++ {
 		environment[fmt.Sprintf("KEY_%d", i)] = strings.Repeat("\x01", 4096)
@@ -61,7 +61,7 @@ func TestClaimSupportsEscapedEnvironmentWithinLimits(t *testing.T) {
 }
 
 func TestClaimEnvironmentRequiresHTTPS(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"job":{"id":"1"},"environment":{"KEY":"secret"}}`)
 	})

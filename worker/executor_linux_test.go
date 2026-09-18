@@ -13,16 +13,16 @@ import (
 )
 
 func TestJobDoesNotInheritAPIKey(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "worker-secret")
-	t.Setenv("JOBD_ENV_KEY", "controller-only-secret")
+	t.Setenv("JOBD_WORKER_TOKEN", "worker-secret")
+	t.Setenv("JOBD_MASTER_KEY", "controller-only-secret")
 	t.Setenv("JOBD_TEST_KEEP", "kept")
-	result := execute(context.Background(), []string{"sh", "-c", `test "${JOBD_API_KEY+x}" != x && test "${JOBD_ENV_KEY+x}" != x && test "$JOBD_TEST_KEEP" = kept && test "$JOBD_CUSTOM" = custom-value`}, time.Millisecond,
-		[]string{"JOBD_API_KEY=override-secret", "JOBD_CUSTOM=custom-value"})
+	result := execute(context.Background(), []string{"sh", "-c", `test "${JOBD_WORKER_TOKEN+x}" != x && test "${JOBD_MASTER_KEY+x}" != x && test "$JOBD_TEST_KEEP" = kept && test "$JOBD_CUSTOM" = custom-value`}, time.Millisecond,
+		[]string{"JOBD_WORKER_TOKEN=override-secret", "JOBD_CUSTOM=custom-value"})
 	t.Cleanup(func() { os.Remove(result.OutputPath) })
 	if result.ExitCode == nil || *result.ExitCode != 0 {
 		t.Fatalf("job environment filtering failed: %+v", result)
 	}
-	if os.Getenv("JOBD_API_KEY") != "worker-secret" {
+	if os.Getenv("JOBD_WORKER_TOKEN") != "worker-secret" {
 		t.Fatal("worker credential was modified")
 	}
 }

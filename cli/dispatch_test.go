@@ -15,7 +15,7 @@ import (
 )
 
 func TestDispatchPreservesSubmittedArgv(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	var received []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" || r.URL.Path != "/queues/batch/jobs" {
@@ -61,7 +61,7 @@ func TestDispatchPreservesSubmittedArgv(t *testing.T) {
 }
 
 func TestInvalidManagementNeverSubmits(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; io.WriteString(w, `{}`) }))
 	defer server.Close()
@@ -84,7 +84,7 @@ func TestInvalidManagementNeverSubmits(t *testing.T) {
 }
 
 func TestControllerAndQueueFlagsAreRejected(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	t.Setenv("PATH", t.TempDir())
 	for _, args := range [][]string{
 		{"--controller", "https://example.test", "echo"},
@@ -108,7 +108,7 @@ func TestControllerAndQueueFlagsAreRejected(t *testing.T) {
 }
 
 func TestManagementHelpAndCompletion(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "")
+	t.Setenv("JOBD_WORKER_TOKEN", "")
 	t.Setenv("PATH", t.TempDir())
 	for _, args := range [][]string{
 		{"--help"}, {"-h"}, {"env"}, {"env", "set", "--help"}, {"worker"},
@@ -125,7 +125,7 @@ func TestManagementHelpAndCompletion(t *testing.T) {
 }
 
 func TestExplicitJobActions(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	t.Setenv("JOBD_STATE_DIR", t.TempDir())
 	for _, tc := range []struct {
 		args         []string
@@ -163,7 +163,7 @@ func TestExplicitJobActions(t *testing.T) {
 }
 
 func TestEnvManagementEndToEnd(t *testing.T) {
-	t.Setenv("JOBD_API_KEY", "auth")
+	t.Setenv("JOBD_WORKER_TOKEN", "auth")
 	values := map[string]string{}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer auth" {
@@ -227,7 +227,7 @@ func TestExplicitLocalSubmissionAndReservedNameEscape(t *testing.T) {
 	})
 	t.Setenv("JOBD_STATE_DIR", dir)
 	t.Setenv("JOBD_CONTROLLER", "invalid-no-http")
-	t.Setenv("JOBD_API_KEY", "not-for-local")
+	t.Setenv("JOBD_WORKER_TOKEN", "not-for-local")
 	for _, args := range [][]string{
 		{"--local", "--", "env", "--help"},
 		{"job", "submit", "--local", "--", "env", "--help"},

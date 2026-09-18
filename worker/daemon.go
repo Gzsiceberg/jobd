@@ -179,7 +179,7 @@ func manageWorker(config Config, out io.Writer) error {
 		return ensureWorker(config)
 	case "restart":
 		// Reject invalid controller settings before stopping a healthy worker.
-		if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) != "" {
+		if strings.TrimSpace(os.Getenv("JOBD_WORKER_TOKEN")) != "" {
 			client, err := NewControllerClient(config.Controller, "", config.Queue, config.PollInterval)
 			if err != nil {
 				return err

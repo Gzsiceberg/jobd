@@ -14,12 +14,20 @@ Node.js 24, pnpm 12.4.1, Go 1.27.1+, OpenSSL and uv. Workers target Linux. Pytho
 nvm install && nvm use     # optional: if using nvm
 corepack enable
 pnpm install
-export JOBD_API_KEY="$(openssl rand -base64 32)"
-(umask 077; printf 'JOBD_API_KEY=%s\n' "$JOBD_API_KEY" > controller/.dev.vars)
-pnpm dev                  # localhost:8787; persistent local SQLite
+export JOBD_MASTER_KEY="$(openssl rand -base64 32)"
+(umask 077; printf 'JOBD_MASTER_KEY=%s\n' "$JOBD_MASTER_KEY" > controller/.dev.vars)
+# Private local certificate; never disable TLS verification in clients.
+mkdir -p "$HOME/.local/share/jobd-dev"
+(umask 077; openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
+  -keyout "$HOME/.local/share/jobd-dev/key.pem" \
+  -out "$HOME/.local/share/jobd-dev/cert.pem" \
+  -subj '/CN=localhost' -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost')
+pnpm dev --local-protocol https \
+  --https-key-path "$HOME/.local/share/jobd-dev/key.pem" \
+  --https-cert-path "$HOME/.local/share/jobd-dev/cert.pem"
 ```
 
-Never use a production key for development.
+Never use a production key for development. Keep an existing development `JOBD_MASTER_KEY` if you need its encrypted queue secrets; regenerating it makes those values unreadable.
 
 ## Start a worker
 
@@ -29,22 +37,26 @@ In another terminal:
 set -a
 . ./controller/.dev.vars
 set +a
+export SSL_CERT_FILE="$HOME/.local/share/jobd-dev/cert.pem"
+export JOBD_CONTROLLER=https://127.0.0.1:8787
+(cd cli && go build -o jobd .)
 (cd worker && go build -o jobd-worker .)
-./worker/jobd-worker --controller http://localhost:8787 --queue default
+export JOBD_WORKER_TOKEN="$(./cli/jobd auth create-worker-key --duration 24h)"
+env -u JOBD_MASTER_KEY ./worker/jobd-worker --controller "$JOBD_CONTROLLER" --queue default
 ```
 
 ## Submit and inspect a job
 
-Use a terminal with the same key exported:
+Use an admin terminal with `JOBD_MASTER_KEY` exported from `controller/.dev.vars`:
 
 ```sh
-curl -fsS http://localhost:8787/queues/default/jobs \
-  -H "Authorization: Bearer $JOBD_API_KEY" \
+curl --cacert "$HOME/.local/share/jobd-dev/cert.pem" -fsS https://127.0.0.1:8787/queues/default/jobs \
+  -H "Authorization: Bearer $JOBD_MASTER_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"command":["echo","hello from jobd"]}'
 
-curl -fsS http://localhost:8787/queues/default/jobs/JOB_ID \
-  -H "Authorization: Bearer $JOBD_API_KEY"
+curl --cacert "$HOME/.local/share/jobd-dev/cert.pem" -fsS https://127.0.0.1:8787/queues/default/jobs/JOB_ID \
+  -H "Authorization: Bearer $JOBD_MASTER_KEY"
 ```
 
 Or use the [CLI](../cli/README.md).
@@ -68,7 +80,7 @@ Shared config: [ESLint](../tooling/eslint/base.mjs) and [TypeScript](../tsconfig
 uv run tooling/e2e.py
 ```
 
-Requires the prerequisites and installed pnpm dependencies. Builds temporary binaries. Runs real workers and a local Wrangler controller with isolated storage and a test key.
+Requires the prerequisites and installed pnpm dependencies. Builds temporary binaries. Runs real workers and a local HTTPS Wrangler controller with isolated storage, a temporary trusted certificate, and generated queue-scoped worker tokens.
 
 Covers:
 

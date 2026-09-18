@@ -15,7 +15,7 @@ import (
 
 func testClient(t *testing.T, handler http.HandlerFunc) *ControllerClient {
 	t.Helper()
-	t.Setenv("JOBD_API_KEY", "test-key")
+	t.Setenv("JOBD_WORKER_TOKEN", "test-key")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			t.Error("missing API key")

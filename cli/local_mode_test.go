@@ -21,7 +21,7 @@ func TestMissingKeySelectsLocalMode(t *testing.T) {
 					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 				}
 			})
-			t.Setenv("JOBD_API_KEY", key)
+			t.Setenv("JOBD_WORKER_TOKEN", key)
 			t.Setenv("JOBD_STATE_DIR", dir)
 			t.Setenv("JOBD_CONTROLLER", "invalid")
 			for _, args := range [][]string{nil, {"-l"}, {"--local", "-l"}, {"echo", "hello"}} {
@@ -37,7 +37,7 @@ func TestMissingKeySelectsLocalMode(t *testing.T) {
 					if !strings.Contains(out.String(), "ID") || strings.Contains(out.String(), "Warning") {
 						t.Fatalf("listing: %q", out.String())
 					}
-					if !strings.Contains(diagnostic.String(), "JOBD_API_KEY") || !strings.Contains(diagnostic.String(), "jobd worker restart") {
+					if !strings.Contains(diagnostic.String(), "JOBD_WORKER_TOKEN") || !strings.Contains(diagnostic.String(), "jobd worker restart") {
 						t.Fatalf("warning: %q", diagnostic.String())
 					}
 				}

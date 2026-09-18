@@ -15,6 +15,7 @@ Examples:
   jobd -- env
   jobd env set API_KEY=XXX KEY=SSS
   jobd worker restart
+  jobd auth create-worker-key --duration 24h
 
 Shortcuts:
   -l               List remote and local jobs (default; --local lists local only)
@@ -26,10 +27,11 @@ Shortcuts:
   -u [ID]          Move a queued job first (last added by default)
   -U ID1 ID2       Swap two queued jobs
   -h               Show help
-Use -- to force submission of a reserved name (env, worker, job, help, completion)
+Use -- to force submission of a reserved name (env, worker, job, auth, help, completion)
 or a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
-Authentication: JOBD_API_KEY (controller requests only). Without it, local mode is automatic.
+Authentication: JOBD_MASTER_KEY (admin) or JOBD_WORKER_TOKEN (expiring worker key).
+Without either, local mode is automatic. Workers only use JOBD_WORKER_TOKEN.
 --local uses the same actions against the local worker's single queue.
 Local jobs run when the controller has no job available, or directly when no key is set.
 JOBD_STATE_DIR selects the local worker (default ~/.local/state/jobd-worker).
@@ -59,7 +61,7 @@ func newManagementCommand(options *cliOptions, input io.Reader, out, diagnostic 
 	root.SetOut(out)
 	root.SetErr(diagnostic)
 	root.PersistentFlags().BoolVar(&options.local, "local", options.local, "Use the local job queue")
-	root.AddCommand(newEnvCommand(options), newWorkerCommand(options), newJobCommand(options))
+	root.AddCommand(newEnvCommand(options), newWorkerCommand(options), newJobCommand(options), newAuthCommand(options))
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
 	strictCommandGroups(root)
