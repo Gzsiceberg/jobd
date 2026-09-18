@@ -196,7 +196,7 @@ def main():
                 check(j['hostname'] in result.stderr and j['worker_id'] in result.stderr, "missing output host/worker")
                 check(Path(j['output_path']).stat().st_mode & 0o077 == 0, "output permissions not private")
                 line = next(line for line in call().stdout.splitlines() if line.split()[0] == j['id'])
-                check(all(text in line for text in ["running", j['hostname'], j['worker_id'], j['output_path']]), "listing missing running metadata")
+                check(all(text in line for text in ["running", j['hostname'], j['worker_id'][:8], j['output_path']]), "listing missing running metadata")
             eventually("nonzero running elapsed time", lambda: elapsed(a) not in ("-", "0s"))
             before = elapsed(a)
             time.sleep(1.1)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"syscall"
 	"text/tabwriter"
@@ -66,7 +67,41 @@ func listedCommand(argv []string) string {
 	return command
 }
 
+// Only distinct IDs compete for prefixes; repeated jobs from one worker share
+// a label. Sorted neighbors are enough to find each ID's longest shared prefix.
+func workerLabels(listings ...[]job) map[string]string {
+	labels := make(map[string]string)
+	for _, listing := range listings {
+		for _, j := range listing {
+			id := value(j.WorkerID)
+			labels[id] = id
+		}
+	}
+	ids := make([]string, 0, len(labels))
+	for id := range labels {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for i, id := range ids {
+		length := min(8, len(id))
+		for _, neighbor := range []int{i - 1, i + 1} {
+			if neighbor < 0 || neighbor >= len(ids) {
+				continue
+			}
+			other := ids[neighbor]
+			common := 0
+			for common < len(id) && common < len(other) && id[common] == other[common] {
+				common++
+			}
+			length = max(length, min(common+1, len(id)))
+		}
+		labels[id] = id[:length]
+	}
+	return labels
+}
+
 func printJobs(out io.Writer, listings ...[]job) error {
+	workers := workerLabels(listings...)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	now := time.Now()
 	fmt.Fprintln(w, "ID\tSTATE\tELAPSED\tPROGRESS\tHOST\tWORKER\tEXIT\tOUTPUT\tCOMMAND")
@@ -86,7 +121,7 @@ func printJobs(out io.Writer, listings ...[]job) error {
 			}
 			// Quote host/path so tabs and newlines cannot corrupt the table.
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, state, elapsed(j, now), progress,
-				strconv.Quote(value(j.Hostname)), value(j.WorkerID), exit, strconv.Quote(value(j.OutputPath)), listedCommand(j.Command))
+				strconv.Quote(value(j.Hostname)), workers[value(j.WorkerID)], exit, strconv.Quote(value(j.OutputPath)), listedCommand(j.Command))
 		}
 	}
 	return w.Flush()
