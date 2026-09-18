@@ -41,6 +41,8 @@ jobs:
           (cd worker && go test -race ./... && go vet ./...)
           test -z "$(gofmt -l cli/*.go worker/*.go)"
       - name: Test local end-to-end flow
+        env:
+          WRANGLER_LOG: debug
         run: uv run tooling/e2e.py
       - name: Test public installer and uninstaller
         run: uv run tooling/test-install.py
