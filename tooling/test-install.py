@@ -160,12 +160,12 @@ exec '{actual_mv}' "$@"
         try:
             cli("--local", "-l")
             check((state / "local/control.sock").exists(), "local command did not start worker")
-            cli("--restart")
+            cli("worker", "restart")
             run(bins / "jobd-uninstall")
             check(not (state / "local/control.sock").exists(), "uninstall left worker running")
         finally:
             if (bins / "jobd").exists():
-                cli("--stop")
+                cli("worker", "stop")
         check(not (bins / "jobd").exists() and not (bins / "jobd-worker").exists(), "binaries not removed")
         check(not (bins / "jobd-LICENSE").exists(), "managed license not removed")
         check((state / "worker-id").read_text() == identity, "uninstall deleted worker state")

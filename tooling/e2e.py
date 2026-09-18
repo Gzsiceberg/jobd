@@ -182,14 +182,15 @@ def main():
             call("-o", a, success=False)
             print("PASS submit argv, -u/-r explicit and defaults, -U ordering", flush=True)
 
-            # All global selector forms, env defaults, queue isolation, and -- delimiter.
-            other = call("--controller", address, "--queue=other", "--", "echo", "isolated").stdout.strip()
+            # Environment selectors, queue isolation, and -- delimiter.
+            selectors = {"JOBD_CONTROLLER": address, "JOBD_QUEUE": "other"}
+            other = call("--", "echo", "isolated", extra_env=selectors).stdout.strip()
             check(api(f"/jobs/{other}", "other")["command"] == ["echo", "isolated"], "-- changed argv")
-            check(other in call("--controller=" + address, "--queue", "other", "-l").stdout, "selector flags failed")
+            check(other in call("job", "list", extra_env=selectors).stdout, "environment selectors failed")
             check("isolated" not in call().stdout and other == "1", "queue isolation/per-queue IDs failed")
             check(other in call(extra_env={"JOBD_QUEUE": "other"}).stdout, "queue env ignored")
-            call("--queue", "other", "-r", other)
-            print("PASS --controller, --queue, environment defaults, --, queue isolation", flush=True)
+            call("-r", other, extra_env=selectors)
+            print("PASS environment selectors, --, queue isolation", flush=True)
 
             gate_f = directory / "release-f"
             f = submit("sh", "-c", 'printf "failure output\\n"; while [ ! -f "$1" ]; do sleep 0.1; done; exit 7', "sh", str(gate_f))
@@ -469,7 +470,7 @@ def main():
             check((no_key_state / "local/control.sock").exists(), "CLI did not start worker")
             for args in [(), ("-l",)]:
                 listed = call(*args)
-                check("JOBD_API_KEY" in listed.stderr and "jobd --restart" in listed.stderr,
+                check("JOBD_API_KEY" in listed.stderr and "jobd worker restart" in listed.stderr,
                       "no-key listing did not explain controller setup")
                 check("Warning" not in listed.stdout, "warning polluted job listing")
             no_key_id = call("sh", "-c", 'test "${JOBD_API_KEY+x}" != x; echo no-key-output').stdout.strip()
@@ -478,13 +479,13 @@ def main():
             path = call("-o", no_key_id).stdout.strip()
             output_paths.add(path)
             check(Path(path).read_text() == "no-key-output\n", "no-key output mismatch")
-            call("--restart")
+            call("worker", "restart")
             check((no_key_state / "local/control.sock").exists(), "restart did not start worker")
             check(len(call("-l").stdout.splitlines()) == 1, "memory queue survived restart")
             check(not (no_key_state / "local/queue.db").exists(), "memory queue created a database file")
             check(Path(path).read_text() == "no-key-output\n", "restart removed output log")
             call("-C")
-            call("--stop")
+            call("worker", "stop")
             check(not (no_key_state / "local/control.sock").exists(), "stop left socket open")
             print("PASS automatic local-only mode without API key, listing warning, immediate execution, output and memory-only restart", flush=True)
             print("All real controller/worker/CLI end-to-end checks passed.", flush=True)
@@ -500,7 +501,7 @@ def main():
             raise
         finally:
             for state in detached_states:
-                subprocess.run([str(cli), "--stop"], env=env | {"JOBD_STATE_DIR": str(state)},
+                subprocess.run([str(cli), "worker", "stop"], env=env | {"JOBD_STATE_DIR": str(state)},
                                capture_output=True, timeout=40, check=True)
             for _, process, _ in reversed(processes):
                 stop(process)
