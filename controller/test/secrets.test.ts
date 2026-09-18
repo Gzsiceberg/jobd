@@ -40,10 +40,20 @@ describe('queue secrets', () => {
 
   it('validates input, bounds storage, supports empty values and deletion', async () => {
     const { secrets } = setup();
-    for (const name of ['JOBD_API_KEY', 'JOBD_PROGRESS_SOCKET', 'A=B', '1BAD'])
+    for (const name of ['A=B', '1BAD'])
       await expect(secrets.set(name, 'secret')).rejects.toThrow('name');
     for (const value of ['a\0b', 'x'.repeat(4097), 'é'.repeat(2049), 123])
       await expect(secrets.set('KEY', value)).rejects.toThrow('Value');
+    for (const name of [
+      'JOBD_CUSTOM',
+      'JOBD_API_KEY',
+      'JOBD_PROGRESS_SOCKET',
+    ]) {
+      await secrets.set(name, 'allowed');
+      expect((await secrets.environment())[name]).toBe('allowed');
+      secrets.remove(name);
+      expect(secrets.names()).not.toContain(name);
+    }
     await secrets.set('EMPTY', '');
     expect(await secrets.environment()).toEqual({ EMPTY: '' });
     secrets.remove('EMPTY');

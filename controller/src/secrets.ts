@@ -3,7 +3,7 @@ import { ApiError } from './api/errors';
 const encoder = new TextEncoder();
 const maxVariables = 64;
 export const validEnvName = (name: string) =>
-  /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) && !name.startsWith('JOBD_');
+  /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name);
 
 function encode(data: Uint8Array): string {
   return btoa(String.fromCharCode(...data));
@@ -57,7 +57,7 @@ export class QueueSecrets {
 
   async set(name: string, value: unknown) {
     if (!validEnvName(name))
-      throw new ApiError(400, 'Invalid or reserved environment variable name');
+      throw new ApiError(400, 'Invalid environment variable name');
     if (
       typeof value !== 'string' ||
       value.includes('\0') ||
@@ -90,7 +90,7 @@ export class QueueSecrets {
 
   remove(name: string) {
     if (!validEnvName(name))
-      throw new ApiError(400, 'Invalid or reserved environment variable name');
+      throw new ApiError(400, 'Invalid environment variable name');
     this.storage.sql.exec('DELETE FROM queue_secrets WHERE name = ?', name);
   }
 

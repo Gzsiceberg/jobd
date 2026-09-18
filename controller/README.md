@@ -66,7 +66,7 @@ Queue-prefixed routes (same shared bearer authentication):
 | GET    | `/env`       | `{"names":["API_KEY"]}`; no values   |
 | DELETE | `/env/:name` | Idempotent deletion                  |
 
-Management requires HTTPS. Names match `[A-Za-z_][A-Za-z0-9_]{0,127}`; `JOBD_` is reserved. Each queue allows 64 variables, each up to 4096 UTF-8 bytes without NUL. Empty values and newlines are preserved. Names are not encrypted.
+Management requires HTTPS. Names match `[A-Za-z_][A-Za-z0-9_]{0,127}`. Each queue allows 64 variables, each up to 4096 UTF-8 bytes without NUL. Empty values and newlines are preserved. Names are not encrypted.
 
 Values use AES-256-GCM with a fresh 96-bit nonce for each write. Authenticated data binds ciphertext to the Durable Object ID and variable name. SQLite and its backups contain ciphertext, not values. Moving encrypted rows to a different object will not work.
 
@@ -81,7 +81,7 @@ From the repository root:
 ```sh
 pnpm --filter jobd-controller exec wrangler login
 pnpm --filter jobd-controller deploy
-export JOBD_API_KEY="$(uv run tooling/generate-api-key.py)"
+export JOBD_API_KEY="$(openssl rand -base64 32)"
 printf '%s' "$JOBD_API_KEY" | pnpm --filter jobd-controller exec wrangler secret put JOBD_API_KEY
 ```
 
