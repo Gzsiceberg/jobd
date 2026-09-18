@@ -18,6 +18,7 @@ import (
 )
 
 type Config struct {
+	Action            string
 	Controller        string
 	Queue             string
 	StateDir          string
@@ -33,6 +34,9 @@ func parseConfig(args []string, output io.Writer) (Config, error) {
 	flags.StringVar(&config.Controller, "controller", envDefault("JOBD_CONTROLLER", "https://jobd-controller.aflashsheng.workers.dev"), "controller URL")
 	flags.StringVar(&config.Queue, "queue", envDefault("JOBD_QUEUE", "default"), "queue name")
 	flags.StringVar(&config.StateDir, "state-dir", envDefault("JOBD_STATE_DIR", "~/.local/state/jobd-worker"), "identity and lock directory")
+	start := flags.Bool("start", false, "start a detached worker if absent")
+	stop := flags.Bool("stop", false, "stop the worker and wait for shutdown")
+	restart := flags.Bool("restart", false, "restart a detached worker with current settings")
 	poll := flags.Float64("poll-interval", 5, "idle polling and HTTP retry interval in seconds")
 	heartbeat := flags.Float64("heartbeat-interval", 15, "heartbeat interval in seconds")
 	if err := flags.Parse(args); err != nil {
@@ -40,6 +44,14 @@ func parseConfig(args []string, output io.Writer) (Config, error) {
 	}
 	if flags.NArg() != 0 {
 		return config, fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+	}
+	for action, enabled := range map[string]bool{"start": *start, "stop": *stop, "restart": *restart} {
+		if enabled {
+			if config.Action != "" {
+				return config, fmt.Errorf("choose only one of --start, --stop or --restart")
+			}
+			config.Action = action
+		}
 	}
 	var err error
 	if config.LocalPersist, err = strconv.ParseBool(envDefault("JOBD_LOCAL_PERSIST", "false")); err != nil {
@@ -86,6 +98,8 @@ func run(config Config) error {
 }
 
 func runWithContext(ctx context.Context, config Config) error {
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	var client *ControllerClient
 	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) != "" {
 		var err error
@@ -121,7 +135,7 @@ func runWithContext(ctx context.Context, config Config) error {
 		shutdownTimeout: 10 * time.Second, processGrace: 5 * time.Second,
 	}
 	local.workerID, local.hostname, local.cancel = identity.ID, hostname, worker.active.RequestCancellation
-	localSocket, err := openLocalSocket(ctx, local)
+	localSocket, err := openLocalSocket(ctx, local, stop)
 	if err != nil {
 		return err
 	}
@@ -140,7 +154,11 @@ func main() {
 		return
 	}
 	if err == nil {
-		err = run(config)
+		if config.Action != "" {
+			err = manageWorker(config, os.Stdout)
+		} else {
+			err = run(config)
+		}
 	}
 	if err != nil {
 		slog.Error("Worker stopped", "error", err)

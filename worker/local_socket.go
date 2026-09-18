@@ -21,7 +21,7 @@ type localSocket struct {
 }
 
 // The daemon lock protects this stable socket; only the worker opens the database.
-func openLocalSocket(ctx context.Context, q *localQueue) (*localSocket, error) {
+func openLocalSocket(ctx context.Context, q *localQueue, stop context.CancelFunc) (*localSocket, error) {
 	path := filepath.Join(q.dir, "control.sock")
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
@@ -41,8 +41,18 @@ func openLocalSocket(ctx context.Context, q *localQueue) (*localSocket, error) {
 		listener.Close()
 		return nil, err
 	}
+	routes := q.routes()
+	routes.HandleFunc("POST /daemon/stop", func(w http.ResponseWriter, r *http.Request) {
+		// Cancellation requests shutdown; the lifecycle owner closes the server.
+		// CancelFunc is safe to call repeatedly or from concurrent handlers.
+		defer stop()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			OK bool `json:"ok"`
+		}{OK: true})
+	})
 	s := &localSocket{server: &http.Server{
-		Handler: q.routes(), ReadTimeout: 5 * time.Second,
+		Handler: routes, ReadTimeout: 5 * time.Second,
 		WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}, done: make(chan struct{})}
@@ -59,7 +69,7 @@ func (s *localSocket) Close() {
 	<-s.done
 }
 
-func (q *localQueue) routes() http.Handler {
+func (q *localQueue) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	register := func(pattern string, handle func(*http.Request) (any, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +92,11 @@ func (q *localQueue) routes() http.Handler {
 			json.NewEncoder(w).Encode(result)
 		})
 	}
+	register("GET /health", func(r *http.Request) (any, error) {
+		return struct {
+			Status string `json:"status"`
+		}{Status: "ok"}, nil
+	})
 	register("POST /jobs", func(r *http.Request) (any, error) {
 		var body struct {
 			Command []string `json:"command"`

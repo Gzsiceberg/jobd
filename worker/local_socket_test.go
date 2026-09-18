@@ -22,7 +22,9 @@ func TestLocalSocket(t *testing.T) {
 	}
 	stale.SetUnlinkOnClose(false)
 	stale.Close()
-	socket, err := openLocalSocket(context.Background(), q)
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	socket, err := openLocalSocket(ctx, q, stop)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +64,10 @@ func TestLocalSocket(t *testing.T) {
 		}
 		return result
 	}
+	if result := request("GET", "/health", "", 200); result["status"] != "ok" {
+		t.Fatalf("health: %+v", result)
+	}
+	request("POST", "/health", "", 405)
 	if result := request("POST", "/jobs", `{"command":["echo","hello"]}`, 200); result["id"] != "local-1" {
 		t.Fatalf("submit: %+v", result)
 	}
@@ -102,6 +108,21 @@ func TestLocalSocket(t *testing.T) {
 	}
 	request("POST", "/jobs", string(body), 200)
 	request("POST", "/jobs", `{"command":["`+strings.Repeat("x", 2<<20)+`"]}`, 400)
+	request("GET", "/daemon/stop", "", 405)
+	if ctx.Err() != nil {
+		t.Fatal("ordinary requests stopped the worker")
+	}
+	for range 2 {
+		if result := request("POST", "/daemon/stop", "", 200); result["ok"] != true {
+			t.Fatalf("stop acknowledgement: %+v", result)
+		}
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("stop request did not cancel the worker context")
+	}
+	request("GET", "/health", "", 503)
 	socket.Close() // Idempotent, closes idle HTTP clients and removes the socket.
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("socket leaked")
@@ -112,7 +133,9 @@ func TestLocalSocketPreservesFile(t *testing.T) {
 	q := testLocalQueue(t)
 	path := filepath.Join(q.dir, "control.sock")
 	os.WriteFile(path, []byte("keep"), 0600)
-	if socket, err := openLocalSocket(context.Background(), q); err == nil {
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	if socket, err := openLocalSocket(ctx, q, stop); err == nil {
 		socket.Close()
 		t.Fatal("overwrote regular file")
 	}

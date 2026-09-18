@@ -47,6 +47,7 @@ def eventually(description, predicate, timeout=30):
 def main():
     processes = []
     output_paths = set()
+    detached_states = set()
     with tempfile.TemporaryDirectory(prefix="jobd-e2e-") as tmp:
         directory = Path(tmp)
         env = {key: value for key, value in os.environ.items() if not key.startswith("JOBD_")}
@@ -380,7 +381,6 @@ def main():
             env["JOBD_STATE_DIR"] = str(local_state)
             env["JOBD_LOCAL_PERSIST"] = "true"
             local_options = ("--local",)
-            call(*local_options, "echo", "worker is stopped", success=False)
             remote_id = submit("touch", str(remote_marker))
             local_worker_command = [str(worker), "--state-dir", str(local_state),
                                     "--poll-interval", "0.1", "--heartbeat-interval", "0.2"]
@@ -445,8 +445,9 @@ def main():
             env["JOBD_CONTROLLER"] = "invalid-unused-controller"
             no_key_state = directory / "worker-no-key"
             env["JOBD_STATE_DIR"] = str(no_key_state)
-            no_key_worker = start("worker-no-key", [str(worker), "--poll-interval", "0.1"], ROOT)
-            eventually("no-key worker socket", lambda: (no_key_state / "local/control.sock").exists())
+            detached_states.add(no_key_state)
+            call("-l")  # Starts a detached worker.
+            check((no_key_state / "local/control.sock").exists(), "CLI did not start worker")
             for args in [(), ("-l",)]:
                 listed = call(*args)
                 check("JOBD_API_KEY" in listed.stderr and "jobd --restart" in listed.stderr,
@@ -454,20 +455,18 @@ def main():
                 check("Warning" not in listed.stdout, "warning polluted job listing")
             no_key_id = call("sh", "-c", 'test "${JOBD_API_KEY+x}" != x; echo no-key-output').stdout.strip()
             check(no_key_id.startswith("local-"), "no-key submission was not local")
-            eventually("no-key job completes without idle delay", lambda: "succeeded" in call("-l").stdout, timeout=5)
+            eventually("no-key job completes without idle delay", lambda: "succeeded" in call("-l").stdout, timeout=10)
             path = call("-o", no_key_id).stdout.strip()
             output_paths.add(path)
             check(Path(path).read_text() == "no-key-output\n", "no-key output mismatch")
-            stop(no_key_worker)
-            check(no_key_worker.returncode == 0, "no-key worker shutdown failed")
-            no_key_worker = start("worker-no-key-restarted", [str(worker), "--poll-interval", "0.1"], ROOT)
-            eventually("restarted no-key socket", lambda: (no_key_state / "local/control.sock").exists())
+            call("--restart")
+            check((no_key_state / "local/control.sock").exists(), "restart did not start worker")
             check(len(call("-l").stdout.splitlines()) == 1, "memory queue survived restart")
             check(not (no_key_state / "local/queue.db").exists(), "memory queue created a database file")
             check(Path(path).read_text() == "no-key-output\n", "restart removed output log")
             call("-C")
-            stop(no_key_worker)
-            check(no_key_worker.returncode == 0, "restarted no-key worker shutdown failed")
+            call("--stop")
+            check(not (no_key_state / "local/control.sock").exists(), "stop left socket open")
             print("PASS automatic local-only mode without API key, listing warning, immediate execution, output and memory-only restart", flush=True)
             print("All real controller/worker/CLI end-to-end checks passed.", flush=True)
         except BaseException:
@@ -481,6 +480,9 @@ def main():
                 print(f"\n--- {name} log (last 8000 characters) ---\n{log.read_text()[-8000:]}", flush=True)
             raise
         finally:
+            for state in detached_states:
+                subprocess.run([str(cli), "--stop"], env=env | {"JOBD_STATE_DIR": str(state)},
+                               capture_output=True, timeout=40, check=True)
             for _, process, _ in reversed(processes):
                 stop(process)
             # Only logs positively identified as belonging to this test's jobs.

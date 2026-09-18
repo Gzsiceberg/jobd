@@ -31,18 +31,42 @@ Set `JOBD_API_KEY` to the controller's shared key. Without it, the worker runs o
 
 The state directory holds the worker ID. Use separate directories for separate daemons. Never copy an identity to another VM.
 
-### systemd user service
+### Background worker
 
-The [installer](../docs/installation.md) creates and starts the service. Source builds can run directly.
+Local CLI commands start a detached worker on demand. Remote commands do not. To start a controller worker explicitly:
 
 ```sh
 export JOBD_API_KEY='your-controller-key'
 jobd --restart
-journalctl --user -u jobd-worker.service
-systemctl --user stop jobd-worker.service
+tail -f ~/.local/state/jobd-worker/worker.log
+jobd --stop
 ```
 
-Stop manual workers using the same state directory first. Restart cancels active work and allows 30 seconds for shutdown. Run `jobd --restart` again after a user-manager restart to restore the key. See [CLI restart](../cli/README.md#restart-the-local-worker) for environment handling.
+The worker inherits the starting CLI's directory and environment. No key file is written. Restart applies new settings, cancels active work and waits up to 30 seconds for shutdown.
+
+The worker survives SSH disconnects. It does not restart itself after a crash or reboot. The next local command starts it again. For unattended controller workers, use your container's startup command or a supervisor.
+
+Source builds can run in the foreground. For CLI auto-start, put `jobd-worker` beside `jobd` or in `PATH`.
+
+The worker owns its lifecycle:
+
+```sh
+jobd-worker --start     # start if absent; wait until healthy
+jobd-worker --restart   # stop fully, then start with current settings
+jobd-worker --stop      # stop and wait for cleanup
+```
+
+The CLI delegates to these commands. Without an action flag, `jobd-worker` runs in the foreground.
+
+### Health check
+
+`GET /health` returns `200` with `{"status":"ok"}`. During shutdown it returns `503`. This checks the local HTTP handler, not controller connectivity or job success.
+
+```sh
+curl --unix-socket "${JOBD_STATE_DIR:-$HOME/.local/state/jobd-worker}/local/control.sock" http://local/health
+```
+
+Worker lifecycle commands use this endpoint to check readiness. An unhealthy response is an error, not a reason to launch another worker.
 
 ## Execution, output and shutdown
 
@@ -56,7 +80,7 @@ Stop manual workers using the same state directory first. Restart cancels active
 
 ## Local fallback queue
 
-Use `jobd --local COMMAND...` as the worker's user. Match `JOBD_STATE_DIR`. The worker must be running.
+Use `jobd --local COMMAND...` as the worker's user. Match `JOBD_STATE_DIR`. The CLI starts the worker if absent.
 
 The CLI connects to `<state-dir>/local/control.sock`. The socket is `0600`; its directory is `0700`. There is no TCP listener or API key. Only the worker accesses SQLite. Transactions make claims and edits atomic.
 
@@ -133,7 +157,7 @@ The CLI shows `cancelling`; the API keeps `running` with `cancel_requested: 1`. 
 
 | Files | Role |
 | --- | --- |
-| `main.go`, `identity_linux.go` | Startup, configuration, identity and lock |
+| `main.go`, `daemon.go`, `identity_linux.go` | Configuration, daemon lifecycle, identity and lock |
 | `worker.go`, `active_job.go` | Worker lifecycle and cancellation |
 | `job.go`, `job_execution.go`, `executor_linux.go` | Job model and execution |
 | `client.go` | API client and retries |

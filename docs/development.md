@@ -78,6 +78,7 @@ Covers:
 - Process-group cancellation, socket cleanup and worker reuse.
 - Local/remote parity, controller priority and the 30-second fallback delay.
 - Memory and persistent queues across restart.
+- Detached auto-start, restart and stop.
 
 The test cleans up its processes, state and identified logs. Existing workers and controller state are not used.
 
