@@ -50,7 +50,7 @@ func TestCombinedListPagination(t *testing.T) {
 	if len(rows) != 203 || remoteCalls != 2 || localCalls != 2 {
 		t.Fatalf("rows=%d remote=%d local=%d", len(rows), remoteCalls, localCalls)
 	}
-	if strings.Fields(rows[0])[8] != "COMMAND" {
+	if strings.Fields(rows[0])[7] != "COMMAND" {
 		t.Fatal(rows[0])
 	}
 	for i, row := range rows[1:] {

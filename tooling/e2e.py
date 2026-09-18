@@ -8,6 +8,7 @@ Run from any directory: uv run tooling/e2e.py
 Uses temporary binaries/state, two local workers, and a loopback controller.
 """
 
+import http.client
 import json
 import os
 from pathlib import Path
@@ -69,6 +70,19 @@ def main():
                                              headers={"Authorization": "Bearer " + env["JOBD_API_KEY"]})
             with urllib.request.urlopen(request, timeout=2) as response:
                 return json.load(response)
+
+        def local_api(state, path):
+            connection = http.client.HTTPConnection("local", timeout=2)
+            connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            connection.sock.settimeout(2)
+            try:
+                connection.sock.connect(str(state / "local/control.sock"))
+                connection.request("GET", path)
+                response = connection.getresponse()
+                check(response.status == 200, f"Local API {path}: {response.status}")
+                return json.load(response)
+            finally:
+                connection.close()
 
         def jobs():
             return api("/jobs")['jobs']
@@ -294,19 +308,14 @@ def main():
                 output_paths.add(api(f"/jobs/{progress_id}")["output_path"])
                 eventually("threshold uploads 25%", lambda: api(f"/jobs/{progress_id}")["progress"] == 0.25)
 
-                def listed_progress():
-                    lines = call("-l").stdout.splitlines()
-                    check(lines[0].split()[3] == "PROGRESS", "missing PROGRESS header")
-                    return next(line.split()[3] for line in lines[1:] if line.split()[0] == progress_id)
-
-                check(listed_progress() == "25.0%", "25% progress missing from jobd -l")
+                check("PROGRESS" not in call("-l").stdout.splitlines()[0], "progress column should be hidden")
                 (work / "half").touch()
                 eventually("50% acknowledged", lambda: (work / "half-acked").exists())
-                eventually("threshold uploads 50%", lambda: listed_progress() == "50.0%")
+                eventually("threshold uploads 50%", lambda: api(f"/jobs/{progress_id}")["progress"] == 0.5)
                 if mode == "finish":
                     (work / "finish").touch()
                     eventually("progress job completion", lambda: api(f"/jobs/{progress_id}")["status"] == "succeeded")
-                    check(listed_progress() == "100.0%", "success not 100%")
+                    check(api(f"/jobs/{progress_id}")["progress"] == 1, "success not 100%")
                     call("-k", progress_id, success=False)
                 else:
                     check("Cancellation requested" in call("-k", progress_id).stdout, "cancel not requested")
@@ -318,7 +327,7 @@ def main():
                     eventually("remote cancellation acknowledgement", lambda: api(f"/jobs/{progress_id}")["status"] == "failed")
                     cancelled = api(f"/jobs/{progress_id}")
                     check(cancelled["error"] == "Job cancelled by user", "missing cancellation reason")
-                    check(listed_progress() == "50.0%", "cancelled job lost progress")
+                    check(cancelled["progress"] == 0.5, "cancelled job lost progress")
                     for pid in [details["pid"], details["child_pid"]]:
                         proc = Path(f"/proc/{pid}/stat")
                         check(not proc.exists() or proc.read_text().split(")", 1)[1].split()[0] == "Z", "cancelled process survived SIGKILL")
@@ -337,7 +346,6 @@ def main():
             quick = submit("uv", "run", fixture, "quick-fail", str(directory))
             eventually("final report uploads buffered progress", lambda: api(f"/jobs/{quick}")["status"] == "failed")
             check(api(f"/jobs/{quick}")["progress"] == 0.04, "final buffered progress lost")
-            check("4.0%" in call("-l").stdout, "quick failure progress absent from CLI")
             output_paths.add(api(f"/jobs/{quick}")["output_path"])
             stop(quick_worker)
             check(quick_worker.returncode == 0, "quick worker shutdown failed")
@@ -356,7 +364,6 @@ def main():
             eventually("10-second upload", lambda: api(f"/jobs/{timed}")["progress"] == 0.05, timeout=15)
             (timed_dir / "half").touch()
             eventually("six-point increase uploads promptly", lambda: api(f"/jobs/{timed}")["progress"] == 0.11, timeout=4)
-            check("11.0%" in call("-l").stdout, "threshold progress not shown in CLI")
             (timed_dir / "finish").touch()
             eventually("timed job completion", lambda: api(f"/jobs/{timed}")["status"] == "succeeded")
             output_paths.add(api(f"/jobs/{timed}")["output_path"])
@@ -372,14 +379,14 @@ def main():
                 args = [arg]
                 copy_id = submit("sh", "-c", 'printf "%s\\0" "$@"', "sh", *args)
                 row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == copy_id)
-                command = row.split(None, 8)[8]
+                command = row.split(None, 7)[7]
                 pasted = subprocess.run(["bash", "-c", command], capture_output=True, timeout=10)
                 check(pasted.returncode == 0, f"Pasted command failed: {pasted.stderr!r}")
                 check(pasted.stdout == b"".join(arg.encode() + b"\0" for arg in args), "Copied COMMAND changed arguments")
                 call("-r", copy_id)
             long_id = submit("echo", "x" * 200)
             row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == long_id)
-            command = row.split(None, 8)[8]
+            command = row.split(None, 7)[7]
             check(len(command) == 60 and command.endswith("..."), "long command was not truncated")
             check(api(f"/jobs/{long_id}")["command"] == ["echo", "x" * 200], "truncation changed stored command")
             call("-r", long_id)
@@ -421,9 +428,9 @@ def main():
             work.mkdir()
             progress_id = call(*local_options, "uv", "run", fixture, "cancel", str(work)).stdout.strip()
             eventually("local progress job starts", lambda: (work / "ready.json").exists())
-            eventually("local progress 25%", lambda: "25.0%" in call(*local_options, "-l").stdout)
+            eventually("local progress 25%", lambda: local_api(local_state, f"/jobs/{progress_id}")["progress"] == 0.25)
             (work / "half").touch()
-            eventually("local progress 50%", lambda: "50.0%" in call(*local_options, "-l").stdout)
+            eventually("local progress 50%", lambda: local_api(local_state, f"/jobs/{progress_id}")["progress"] == 0.5)
             progress_path = call(*local_options, "-o").stdout.strip()
             output_paths.add(progress_path)
             for action in ["-r", "-u"]:
@@ -444,7 +451,7 @@ def main():
             check(local_order.read_text() == "b\na\n", "local reorder/default IDs did not affect execution")
             for job_id in pending[:2]:
                 output_paths.add(call(*local_options, "-o", job_id).stdout.strip())
-            check("50.0%" in call(*local_options, "-l").stdout, "cancel lost local progress")
+            check(local_api(local_state, f"/jobs/{progress_id}")["progress"] == 0.5, "cancel lost local progress")
             check(len(jobs()) == 1, "local progress/result sent to controller")
             call(*local_options, "-C")
             check(len(call(*local_options, "-l").stdout.splitlines()) == 1, "local clear left finished jobs")

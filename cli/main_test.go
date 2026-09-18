@@ -203,11 +203,11 @@ func TestListProgressAndCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(out.String(), "\n")
-	if strings.Fields(lines[0])[3] != "PROGRESS" {
+	if strings.Contains(lines[0], "PROGRESS") || strings.Fields(lines[0])[3] != "HOST" {
 		t.Fatal(out.String())
 	}
 	fields := strings.Fields(lines[1])
-	if fields[1] != "cancelling" || fields[3] != "50.0%" {
+	if fields[1] != "cancelling" || strings.Contains(out.String(), "50.0%") {
 		t.Fatal(out.String())
 	}
 }

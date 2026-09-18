@@ -104,23 +104,19 @@ func printJobs(out io.Writer, listings ...[]job) error {
 	workers := workerLabels(listings...)
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	now := time.Now()
-	fmt.Fprintln(w, "ID\tSTATE\tELAPSED\tPROGRESS\tHOST\tWORKER\tEXIT\tOUTPUT\tCOMMAND")
+	fmt.Fprintln(w, "ID\tSTATE\tELAPSED\tHOST\tWORKER\tEXIT\tOUTPUT\tCOMMAND")
 	for _, listing := range listings {
 		for _, j := range listing {
 			exit := "-"
 			if j.ExitCode != nil {
 				exit = strconv.Itoa(*j.ExitCode)
 			}
-			progress := "-"
-			if j.Progress != nil {
-				progress = fmt.Sprintf("%.1f%%", *j.Progress*100)
-			}
 			state := j.Status
 			if state == "running" && j.CancelRequested != 0 {
 				state = "cancelling"
 			}
 			// Quote host/path so tabs and newlines cannot corrupt the table.
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, state, elapsed(j, now), progress,
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, state, elapsed(j, now),
 				strconv.Quote(value(j.Hostname)), workers[value(j.WorkerID)], exit, strconv.Quote(value(j.OutputPath)), listedCommand(j.Command))
 		}
 	}

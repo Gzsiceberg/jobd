@@ -83,7 +83,7 @@ func TestLocalCLI(t *testing.T) {
 	if err := call("--local", "echo", "a b", ""); err != nil || out.String() != "local-1\n" {
 		t.Fatalf("submit: %s %v", out.String(), err)
 	}
-	if err := call("--local", "-l"); err != nil || !strings.Contains(out.String(), "cancelling") || !strings.Contains(out.String(), "25.0%") || !strings.Contains(out.String(), "ELAPSED") {
+	if err := call("--local", "-l"); err != nil || !strings.Contains(out.String(), "cancelling") || strings.Contains(out.String(), "25.0%") || strings.Contains(out.String(), "PROGRESS") || !strings.Contains(out.String(), "ELAPSED") {
 		t.Fatalf("list: %s %v", out.String(), err)
 	}
 	for _, args := range [][]string{{"--local", "-o"}, {"--local", "-o", "local-1"}} {

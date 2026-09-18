@@ -45,7 +45,7 @@ func TestPrintJobsWorkerLabelsAcrossQueues(t *testing.T) {
 	}
 	rows := strings.Split(strings.TrimSpace(out.String()), "\n")
 	for i, want := range []string{"d9e2c122-d", "d9e2c122-d", "-", "d9e2c122-a"} {
-		if got := strings.Fields(rows[i+1])[5]; got != want {
+		if got := strings.Fields(rows[i+1])[4]; got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 	}
