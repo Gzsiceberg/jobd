@@ -56,7 +56,7 @@ state_dir=${JOBD_STATE_DIR:-$HOME/.local/state/jobd-worker}
 case "$state_dir" in '~') state_dir=$HOME ;; '~/'*) state_dir=$HOME/${state_dir#\~/} ;; esac
 if [ -S "$state_dir/local/control.sock" ]; then
     [ -x "$bin_dir/jobd" ] || fail 'stop the worker manually before uninstalling (jobd is missing)'
-    "$bin_dir/jobd" --stop || fail 'could not stop worker; nothing removed'
+    "$bin_dir/jobd" worker stop || fail 'could not stop worker; nothing removed'
 fi
 # Validate all files before removing anything, including this script itself.
 for name in $files; do rm -f "$bin_dir/$name"; done
