@@ -121,12 +121,12 @@ This atomically removes **queued and finished** records in the selected queue. R
 First configure the controller's [encryption key](../controller/README.md#queue-environment-secrets). Then:
 
 ```sh
-JOBD_QUEUE=batch jobd env set API_KEY --stdin < /secure/path/api-key
+JOBD_QUEUE=batch jobd env set API_KEY=XXX KEY=SSS
 JOBD_QUEUE=batch jobd env list
 JOBD_QUEUE=batch jobd env delete API_KEY
 ```
 
-`env set NAME --stdin` reads the exact value from stdin, including trailing newlines. The `--stdin` flag is required. It never accepts a value argument or prints the value. Avoid typing secrets into shell commands/history; use a protected file or pipe from a secret manager. Maximum value size is 4096 UTF-8 bytes; NUL is forbidden. Listing shows names only.
+`env set KEY[=VALUE] [KEY[=VALUE] ...]` sets one or more secrets. For a bare name, such as `jobd env set API_KEY`, type its value on stdin and press Enter; the line ending is not stored. Terminal input is hidden (no echo); press Enter to submit. Piped input is also supported. Multiple bare names consume one line each, and can be mixed with `KEY=VALUE` arguments. An empty line sets an empty value; EOF without a value is an error. Quote assignments containing spaces or shell metacharacters, for example `jobd env set 'MESSAGE=hello world'`. Empty values (`KEY=`) and additional `=` characters in values are supported. `--stdin` is no longer supported. Values passed as arguments may appear in shell history and process listings; the CLI never prints them. Maximum value size is 4096 UTF-8 bytes; NUL is forbidden. All assignments are validated before uploading, then saved sequentially; a failed request does not roll back earlier updates. Listing shows names only.
 
 These actions require `JOBD_API_KEY` and HTTPS, including during local development; they never fall back to local mode. Queue values override inherited variables in controller job processes without changing the worker environment. Changes affect subsequent claims, not running jobs. Local jobs receive no queue secrets. Do not print secrets from jobs: output files are not redacted. All holders of the shared controller key remain trusted across all queues.
 

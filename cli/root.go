@@ -13,7 +13,7 @@ const help = `Submit commands directly, or use subcommands to manage jobs, secre
 Examples:
   jobd echo hello
   jobd -- env
-  jobd env set API_KEY --stdin
+  jobd env set API_KEY=XXX KEY=SSS
   jobd worker restart
 
 Shortcuts:

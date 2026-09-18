@@ -190,10 +190,10 @@ func TestEnvManagementEndToEnd(t *testing.T) {
 	t.Setenv("JOBD_CONTROLLER", server.URL)
 	t.Setenv("JOBD_QUEUE", "batch")
 	var out bytes.Buffer
-	if err := run([]string{"env", "set", "API_KEY", "--stdin"}, strings.NewReader("secret\n"), &out, io.Discard); err != nil {
+	if err := run([]string{"env", "set", "API_KEY", "KEY=SSS=extra", "EMPTY"}, strings.NewReader("secret\n\n"), &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if values["/queues/batch/env/API_KEY"] != "secret\n" || out.Len() != 0 {
+	if values["/queues/batch/env/API_KEY"] != "secret" || values["/queues/batch/env/KEY"] != "SSS=extra" || values["/queues/batch/env/EMPTY"] != "" || len(values) != 3 || out.Len() != 0 {
 		t.Fatal("incorrect secret upload")
 	}
 	if err := run([]string{"env", "list"}, strings.NewReader(""), &out, io.Discard); err != nil {
@@ -205,7 +205,7 @@ func TestEnvManagementEndToEnd(t *testing.T) {
 	if err := run([]string{"env", "delete", "API_KEY"}, strings.NewReader(""), io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(values) != 0 {
+	if _, exists := values["/queues/batch/env/API_KEY"]; exists || len(values) != 2 {
 		t.Fatal("delete not performed")
 	}
 }
