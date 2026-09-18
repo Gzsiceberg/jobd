@@ -27,16 +27,18 @@ A missing or blank key selects local mode. Listings warn to set the key and run 
 
 ## Restart the local worker
 
-Requires the [installed user service](../worker/README.md#systemd-user-service):
+Start or restart a [detached worker](../worker/README.md#background-worker):
 
 ```sh
 export JOBD_API_KEY='your-controller-key'
 jobd --restart
 ```
 
-This imports the key, selected endpoint/queue, state directory and persistence setting into the systemd user manager. Defaults apply to unset settings. An unset key clears the old key. No controller request is made.
+The worker inherits the CLI's directory and environment. Controller and queue flags apply. No key file is written. Restart cancels active work and waits for shutdown before starting a replacement.
 
-Restart cancels active jobs; it does not replay them. Imported values stay in memory and may reach other user services. Use a dedicated account. Reimport after the user manager restarts. Unit-level environment settings override imported values.
+Use `jobd --stop` to stop it. Logs append to `<state-dir>/worker.log`; arrange rotation yourself. It survives SSH disconnects, but not crashes or reboots. Start it again with a local command or `--restart`.
+
+Install `jobd-worker` beside `jobd` or in `PATH`. Remote queue commands never auto-start a worker.
 
 ## Commands
 
@@ -69,7 +71,7 @@ jobd --local -U local-1 local-2
 
 All job actions work with `--local`. IDs use `local-N`. Local jobs do not appear in controller listings.
 
-The worker must run as the same user. Match its `JOBD_STATE_DIR` (default `~/.local/state/jobd-worker`). The CLI uses an owner-only Unix socket, without TCP or an API key. Only the worker opens queue storage. `--queue` and `--controller` do not select local queues.
+The CLI starts a worker on demand as the same user. Existing workers keep their settings. Match `JOBD_STATE_DIR` (default `~/.local/state/jobd-worker`). The CLI uses an owner-only Unix socket, without TCP or an API key. Only the worker opens queue storage. `--queue` and `--controller` do not select local queues.
 
 Local jobs use the worker's directory and environment. Controller work takes priority. Local work waits for a successful empty claim and a 30-second idle period. Request failures can delay it. Once started, a local job runs to completion. Without a key, there are no controller requests or idle delay.
 

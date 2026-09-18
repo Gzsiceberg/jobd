@@ -26,7 +26,8 @@ Actions:
   -k [ID]          Request cancellation of a running job (last run by default)
   -u [ID]          Move a queued job first (last added by default)
   -U ID1 ID2       Swap two queued jobs
-  --restart        Restart the local jobd-worker systemd user service
+  --restart        Start or restart the detached local worker
+  --stop           Stop the local worker
   -h               Show help
 Use -- before a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
@@ -245,14 +246,14 @@ func run(args []string, out, diagnostic io.Writer) error {
 		_, err := io.WriteString(out, help)
 		return err
 	}
-	if action == "--restart" {
+	if action == "--restart" || action == "--stop" {
 		if local {
-			return fmt.Errorf("--restart is not a queue action")
+			return fmt.Errorf("%s is not a queue action", action)
 		}
 		if len(args) != 0 {
-			return fmt.Errorf("--restart takes no arguments")
+			return fmt.Errorf("%s takes no arguments", action)
 		}
-		return restartWorker(address, queue, out, diagnostic)
+		return manageWorker(action, address, queue, out, diagnostic)
 	}
 	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == "" {
 		local = true
@@ -263,6 +264,9 @@ func run(args []string, out, diagnostic io.Writer) error {
 	var c *client
 	var err error
 	if local {
+		if err := manageWorker("--start", address, queue, io.Discard, diagnostic); err != nil {
+			return err
+		}
 		c, err = newLocalClient(stateDir)
 	} else {
 		c, err = newClient(address, queue)

@@ -17,6 +17,11 @@ import (
 func fakeLocalWorker(t *testing.T, handle http.HandlerFunc) string {
 	t.Helper()
 	dir := t.TempDir()
+	// Queue tests use a fake lifecycle command; worker tests own startup behavior.
+	if err := os.WriteFile(filepath.Join(dir, "jobd-worker"), []byte("#!/bin/sh\n[ \"$1\" = --start ]\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if err := os.Mkdir(filepath.Join(dir, "local"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -105,16 +110,14 @@ func TestLocalCLI(t *testing.T) {
 	}
 }
 
-func TestLocalRequiresWorker(t *testing.T) {
+func TestLocalRequiresWorkerBinary(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	dir := filepath.Join(t.TempDir(), "not-created")
 	var out bytes.Buffer
 	t.Setenv("JOBD_STATE_DIR", dir)
 	err := run([]string{"--local", "echo", "hello"}, &out, &out)
-	if err == nil || !strings.Contains(err.Error(), "ensure it is running") {
+	if err == nil || !strings.Contains(err.Error(), "jobd-worker not found") {
 		t.Fatalf("error: %v", err)
-	}
-	if _, err := os.Stat(dir); !os.IsNotExist(err) {
-		t.Fatal("CLI created state files")
 	}
 }
 
