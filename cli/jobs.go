@@ -65,12 +65,10 @@ func runAction(options cliOptions, action string, args []string, out, diagnostic
 // Confirmation happens before any network request or local worker startup.
 func removeAllJobs(options cliOptions, input io.Reader, out, diagnostic io.Writer) error {
 	options.local = options.local || strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == ""
-	confirmation := options.queue
 	target := fmt.Sprintf("queue %q on %s", options.queue, options.address)
 	var c *client
 	var err error
 	if options.local {
-		confirmation = "local"
 		target = fmt.Sprintf("local queue at %q", options.stateDir)
 		c, err = newLocalClient(options.stateDir)
 	} else {
@@ -79,11 +77,11 @@ func removeAllJobs(options cliOptions, input io.Reader, out, diagnostic io.Write
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(diagnostic, "Remove ALL queued and finished jobs from %s?\nRunning jobs, queue secrets, and output files will be kept. This cannot be undone.\nType %q to confirm: ", target, confirmation); err != nil {
+	if _, err := fmt.Fprintf(diagnostic, "Remove ALL queued and finished jobs from %s?\nRunning jobs, queue secrets, and output files will be kept. This cannot be undone.\nType \"yes\" to confirm: ", target); err != nil {
 		return err
 	}
 	answer, err := bufio.NewReader(io.LimitReader(input, 256)).ReadString('\n')
-	if err != nil || strings.TrimSuffix(strings.TrimSuffix(answer, "\n"), "\r") != confirmation {
+	if err != nil || strings.TrimSuffix(strings.TrimSuffix(answer, "\n"), "\r") != "yes" {
 		return fmt.Errorf("removal cancelled; confirmation did not match")
 	}
 	if options.local {

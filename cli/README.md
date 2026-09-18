@@ -110,7 +110,7 @@ JOBD_QUEUE=batch jobd job remove --all
 jobd --local job remove --all
 ```
 
-The command displays the target and asks you to type the queue name and press Enter (`batch` above, or `local` for the local queue). Nothing is removed on an empty answer, mismatch, or input error. There is no `--yes` bypass, and `--all` cannot be combined with a job ID. Without `JOBD_API_KEY`, the target is the local queue, as with other job actions; the prompt explicitly identifies it.
+The command displays the target and asks you to type `yes` and press Enter. Nothing is removed on an empty answer, mismatch, or input error. There is no `--yes` bypass, and `--all` cannot be combined with a job ID. Without `JOBD_API_KEY`, the target is the local queue, as with other job actions; the prompt explicitly identifies it.
 
 This atomically removes **queued and finished** records in the selected queue. Running jobs are kept and counted in the result. Secrets, worker registrations, output files, and job ID sequences are preserved. The deletion applies to jobs present when the operation executes, including submissions made while the prompt was open. Jobs claimed before deletion are kept as running. No requests or worker startup occur until confirmation; failed requests are not retried automatically.
 

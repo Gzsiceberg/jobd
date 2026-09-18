@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestRemoveAllRequiresMatchingQueueConfirmation(t *testing.T) {
+func TestRemoveAllRequiresYesConfirmation(t *testing.T) {
 	t.Setenv("JOBD_API_KEY", "auth")
 	t.Setenv("JOBD_QUEUE", "batch")
 	calls := 0
@@ -23,7 +23,7 @@ func TestRemoveAllRequiresMatchingQueueConfirmation(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("JOBD_CONTROLLER", server.URL)
-	for _, answer := range []string{"", "batch", "\n", "yes\n", "other\n", " batch\n", strings.Repeat("x", 300) + "\n"} {
+	for _, answer := range []string{"", "yes", "\n", "batch\n", "local\n", "no\n", "y\n", "YES\n", " yes\n", strings.Repeat("x", 300) + "\n"} {
 		var out, diagnostic bytes.Buffer
 		err := run([]string{"job", "remove", "--all"}, strings.NewReader(answer), &out, &diagnostic)
 		if err == nil || !strings.Contains(err.Error(), "cancelled") {
@@ -32,12 +32,12 @@ func TestRemoveAllRequiresMatchingQueueConfirmation(t *testing.T) {
 		if calls != 0 || out.Len() != 0 {
 			t.Fatal("unconfirmed removal performed an operation")
 		}
-		if !strings.Contains(diagnostic.String(), `queue "batch"`) || !strings.Contains(diagnostic.String(), server.URL) || !strings.Contains(diagnostic.String(), `Type "batch"`) {
+		if !strings.Contains(diagnostic.String(), `queue "batch"`) || !strings.Contains(diagnostic.String(), server.URL) || !strings.Contains(diagnostic.String(), `Type "yes"`) {
 			t.Fatal(diagnostic.String())
 		}
 	}
 	var out, diagnostic bytes.Buffer
-	if err := run([]string{"job", "remove", "--all"}, strings.NewReader("batch\n"), &out, &diagnostic); err != nil {
+	if err := run([]string{"job", "remove", "--all"}, strings.NewReader("yes\n"), &out, &diagnostic); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 || out.String() != "Removed 153 job(s); kept 2 running job(s).\n" {
@@ -56,13 +56,13 @@ func TestRemoveAllRejectsJobIDAndNeverRetries(t *testing.T) {
 	defer server.Close()
 	t.Setenv("JOBD_CONTROLLER", server.URL)
 	var diagnostic bytes.Buffer
-	if err := run([]string{"job", "remove", "123", "--all"}, strings.NewReader("batch\n"), io.Discard, &diagnostic); err == nil {
+	if err := run([]string{"job", "remove", "123", "--all"}, strings.NewReader("yes\n"), io.Discard, &diagnostic); err == nil {
 		t.Fatal("accepted ID with --all")
 	}
 	if calls != 0 || diagnostic.Len() != 0 {
 		t.Fatal("invalid arguments prompted or sent a request")
 	}
-	if err := run([]string{"job", "remove", "--all"}, strings.NewReader("batch\n"), io.Discard, io.Discard); err == nil {
+	if err := run([]string{"job", "remove", "--all"}, strings.NewReader("yes\n"), io.Discard, io.Discard); err == nil {
 		t.Fatal("server failure ignored")
 	}
 	if calls != 1 {
@@ -97,10 +97,10 @@ func TestRemoveAllLocalConfirmation(t *testing.T) {
 			if calls != 0 {
 				t.Fatal("unconfirmed local removal")
 			}
-			if !strings.Contains(diagnostic.String(), "local queue") || !strings.Contains(diagnostic.String(), dir) || !strings.Contains(diagnostic.String(), `Type "local"`) {
+			if !strings.Contains(diagnostic.String(), "local queue") || !strings.Contains(diagnostic.String(), dir) || !strings.Contains(diagnostic.String(), `Type "yes"`) {
 				t.Fatal(diagnostic.String())
 			}
-			if err := run(args, strings.NewReader("local\r\n"), &out, &diagnostic); err != nil {
+			if err := run(args, strings.NewReader("yes\r\n"), &out, &diagnostic); err != nil {
 				t.Fatal(err)
 			}
 			if calls != 1 || out.String() != "Removed 3 job(s); kept 1 running job(s).\n" {
