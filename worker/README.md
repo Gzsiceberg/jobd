@@ -43,9 +43,9 @@ Local CLI commands start a detached worker on demand. Remote commands do not. To
 
 ```sh
 export JOBD_API_KEY='your-controller-key'
-jobd --restart
+jobd worker restart
 tail -f ~/.local/state/jobd-worker/worker.log
-jobd --stop
+jobd worker stop
 ```
 
 The worker inherits the starting CLI's directory and environment. No key file is written. Restart applies new settings, cancels active work and waits up to 30 seconds for shutdown.
@@ -99,7 +99,7 @@ A local job runs to completion before the next controller claim. Heartbeats cont
 | `false` or `0` (default) | SQLite `:memory:` | Queue/history lost; IDs may repeat |
 | `true` or `1` | `<state-dir>/local/queue.db` | Pending jobs survive; running jobs fail |
 
-Invalid values are rejected. Export the setting and run `jobd --restart` to apply it. Modes do not migrate jobs. Memory mode preserves but ignores an existing database. Re-enabling persistence loads it. Stop the worker before backing it up.
+Invalid values are rejected. Export the setting and run `jobd worker restart` to apply it. Modes do not migrate jobs. Memory mode preserves but ignores an existing database. Re-enabling persistence loads it. Stop the worker before backing it up.
 
 Logs, identity and the daemon lock stay on disk in both modes. See [local CLI commands](../cli/README.md#local-fallback-jobs).
 
