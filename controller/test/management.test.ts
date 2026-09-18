@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createApi } from '../src/api/router';
 import { Scheduler } from '../src/jobs/scheduler';
 import { schedulerStorage } from './storage';
 
@@ -28,8 +27,7 @@ describe('queue management', () => {
   });
 
   it('reports output with ownership checks and retains it after completion', async () => {
-    const { scheduler: s } = schedulerStorage();
-    const api = createApi(s);
+    const { scheduler: s, api } = schedulerStorage();
     s.register('w', 'host');
     const j = s.submit(['sleep', '10']);
     expect(() => s.latest('run')).toThrow('No matching');
@@ -51,8 +49,7 @@ describe('queue management', () => {
   });
 
   it('exposes management routes and validates pagination', async () => {
-    const { scheduler: s } = schedulerStorage();
-    const api = createApi(s);
+    const { scheduler: s, api } = schedulerStorage();
     const a = s.submit(['a']),
       b = s.submit(['b']);
     expect((await api.request('/jobs?limit=101')).status).toBe(400);

@@ -1,18 +1,16 @@
 import { expect, it } from 'vitest';
 import { createQueueApi } from '../src/api/queues';
-import { createApi } from '../src/api/router';
-import type { Scheduler } from '../src/jobs/scheduler';
 import { schedulerStorage } from './storage';
 
 it('routes each name to independent state and preserves request bodies', async () => {
-  const queues = new Map<string, Scheduler>();
+  const queues = new Map<string, ReturnType<typeof schedulerStorage>>();
   const api = createQueueApi((name, request) => {
-    let scheduler = queues.get(name);
-    if (!scheduler) {
-      scheduler = schedulerStorage().scheduler;
-      queues.set(name, scheduler);
+    let queue = queues.get(name);
+    if (!queue) {
+      queue = schedulerStorage();
+      queues.set(name, queue);
     }
-    return createApi(scheduler).fetch(request);
+    return queue.api.fetch(request);
   }, 'test-key');
   const post = (path: string, body: unknown) =>
     api.request(path, {
@@ -33,10 +31,12 @@ it('routes each name to independent state and preserves request bodies', async (
     });
     await post(`/queues/${name}/workers/worker/claim`, {});
   }
-  const assigned = queues.get('alpha')!.claim('worker')!;
+  const assigned = queues.get('alpha')!.scheduler.claim('worker')!;
   expect(assigned.status).toBe('running');
-  expect(queues.get('beta')!.claim('worker')).toBeNull();
-  expect(queues.get('beta')?.worker('worker').current_job_id).toBeNull();
+  expect(queues.get('beta')!.scheduler.claim('worker')).toBeNull();
+  expect(
+    queues.get('beta')?.scheduler.worker('worker').current_job_id,
+  ).toBeNull();
   const id = assigned.id;
   expect(
     (

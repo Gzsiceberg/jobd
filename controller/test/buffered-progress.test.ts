@@ -1,10 +1,8 @@
 import { expect, it } from 'vitest';
-import { createApi } from '../src/api/router';
 import { schedulerStorage } from './storage';
 
 it('ignores heartbeat progress and accepts separate owned progress uploads', async () => {
-  const { scheduler: s } = schedulerStorage();
-  const api = createApi(s);
+  const { scheduler: s, api } = schedulerStorage();
   s.register('a', 'host');
   s.register('b', 'other');
   const first = s.submit(['first']);
@@ -35,8 +33,7 @@ it('ignores heartbeat progress and accepts separate owned progress uploads', asy
 });
 
 it('flushes progress in failure reports and accepts old heartbeat/report payloads', async () => {
-  const { scheduler: s } = schedulerStorage();
-  const api = createApi(s);
+  const { scheduler: s, api } = schedulerStorage();
   s.register('w', 'host');
   const job = s.submit(['false']);
   s.claim('w');

@@ -1,6 +1,8 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { afterEach } from 'vitest';
 import { Scheduler } from '../src/jobs/scheduler';
+import { QueueSecrets } from '../src/secrets';
+import { createApi } from '../src/api/router';
 
 const connections: DatabaseSync[] = [];
 afterEach(() => {
@@ -36,5 +38,13 @@ export function schedulerStorage() {
       }
     },
   } as unknown as DurableObjectStorage;
-  return { sqlite, storage, scheduler: new Scheduler(storage) };
+  const scheduler = new Scheduler(storage);
+  const secrets = new QueueSecrets(storage, 'test-queue');
+  return {
+    sqlite,
+    storage,
+    scheduler,
+    secrets,
+    api: createApi(scheduler, secrets),
+  };
 }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ApiError } from './errors';
 import { drainBody } from './drain-body';
 import type { Scheduler } from '../jobs/scheduler';
+import type { QueueSecrets } from '../secrets';
 
 const text = z.string().trim().min(1).max(4096);
 const owner = z.object({ worker_id: text });
@@ -33,7 +34,7 @@ const failure = owner.extend({
 });
 
 /** HTTP validation; the scheduler owns persistence and transactions. */
-export function createApi(scheduler: Scheduler) {
+export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
   const app = new Hono();
   app.use('*', drainBody);
   app.onError((error, c) => {
@@ -47,6 +48,25 @@ export function createApi(scheduler: Scheduler) {
     return c.json({ error: 'Internal server error' }, 500);
   });
   app.notFound((c) => c.json({ error: 'Route not found' }, 404));
+  app.use('/env/*', async (c, next) => {
+    c.header('Cache-Control', 'no-store');
+    if (new URL(c.req.url).protocol !== 'https:')
+      throw new ApiError(400, 'Queue environment requires HTTPS');
+    await next();
+  });
+  app.get('/env', (c) => c.json({ names: secrets.names() }));
+  app.put('/env/:name', async (c) => {
+    // Deliberately avoid validation errors that could include secret input.
+    const body: unknown = await c.req.json();
+    if (!body || typeof body !== 'object' || !('value' in body))
+      throw new ApiError(400, 'Expected a value');
+    await secrets.set(c.req.param('name'), body.value);
+    return c.json({ ok: true });
+  });
+  app.delete('/env/:name', (c) => {
+    secrets.remove(c.req.param('name'));
+    return c.json({ ok: true });
+  });
   app.post('/jobs', async (c) => {
     const body = submission.parse(await c.req.json<unknown>());
     return c.json(scheduler.submit(body.command), 201);
@@ -113,7 +133,14 @@ export function createApi(scheduler: Scheduler) {
   });
   app.post('/workers/:id/claim', async (c) => {
     z.object({}).parse(await c.req.json<unknown>());
-    return c.json({ job: scheduler.claim(c.req.param('id')) });
+    c.header('Cache-Control', 'no-store');
+    scheduler.worker(c.req.param('id'));
+    if (secrets.names().length && new URL(c.req.url).protocol !== 'https:')
+      throw new ApiError(400, 'Queue environment requires HTTPS');
+    // Decrypt before claiming: configuration/ciphertext failures must not assign a job.
+    const environment = await secrets.environment();
+    const job = scheduler.claim(c.req.param('id'));
+    return c.json({ job, ...(job ? { environment } : {}) });
   });
   app.post('/jobs/:id/progress', async (c) => {
     const body = progress.parse(await c.req.json<unknown>());

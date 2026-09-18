@@ -2,9 +2,11 @@ import { DurableObject } from 'cloudflare:workers';
 import { createApi } from './api/router';
 import { createQueueApi } from './api/queues';
 import { Scheduler } from './jobs/scheduler';
+import { QueueSecrets } from './secrets';
 
 interface Env {
   JOBD_API_KEY?: string;
+  JOBD_ENV_KEY?: string;
   SCHEDULER: DurableObjectNamespace<SchedulerObject>;
 }
 
@@ -14,7 +16,10 @@ export class SchedulerObject extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.api = createApi(new Scheduler(ctx.storage));
+    this.api = createApi(
+      new Scheduler(ctx.storage),
+      new QueueSecrets(ctx.storage, ctx.id.toString(), env.JOBD_ENV_KEY),
+    );
   }
 
   fetch(request: Request) {

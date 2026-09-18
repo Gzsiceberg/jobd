@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createApi } from '../src/api/router';
 import { createQueueApi } from '../src/api/queues';
 import { schedulerStorage } from './storage';
 
 describe('request body lifetime', () => {
   it('drains ignored management bodies before returning', async () => {
-    const { scheduler } = schedulerStorage();
-    const api = createApi(scheduler);
+    const { api } = schedulerStorage();
     const request = new Request('http://localhost/jobs/clear', {
       method: 'POST',
       body: '{}',
@@ -32,8 +30,7 @@ describe('request body lifetime', () => {
   });
 
   it('preserves bodies consumed by JSON handlers', async () => {
-    const { scheduler } = schedulerStorage();
-    const api = createApi(scheduler);
+    const { api } = schedulerStorage();
     const response = await api.request('/jobs', {
       method: 'POST',
       body: JSON.stringify({ command: ['echo', 'hello'] }),

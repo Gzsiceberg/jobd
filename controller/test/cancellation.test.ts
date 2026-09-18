@@ -1,11 +1,9 @@
 import { expect, it } from 'vitest';
-import { createApi } from '../src/api/router';
 import { Scheduler } from '../src/jobs/scheduler';
 import { schedulerStorage } from './storage';
 
 it('persists cancellation until the owner reports, without releasing the running slot', async () => {
-  const { scheduler: s, storage } = schedulerStorage();
-  const api = createApi(s);
+  const { scheduler: s, storage, api } = schedulerStorage();
   s.register('a', 'host-a');
   s.register('b', 'host-b');
   const job = s.submit(['sleep', '60']);

@@ -1,6 +1,6 @@
 export class ApiError extends Error {
   constructor(
-    public status: 400 | 404 | 409,
+    public status: 400 | 404 | 409 | 503,
     message: string,
   ) {
     super(message);

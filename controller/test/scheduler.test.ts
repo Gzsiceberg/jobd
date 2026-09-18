@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createApi } from '../src/api/router';
 import { schedulerStorage } from './storage';
 
 function setup() {
-  const { scheduler } = schedulerStorage();
+  const { scheduler, api } = schedulerStorage();
   scheduler.register('a', 'host-a');
   scheduler.register('b', 'host-b');
-  return { scheduler, api: createApi(scheduler) };
+  return { scheduler, api };
 }
 
 describe('minimal queue', () => {
