@@ -69,7 +69,7 @@ jobd --local -k local-1
 jobd --local -U local-1 local-2
 ```
 
-All job actions work with `--local`. IDs use `local-N`. Local jobs do not appear in controller listings.
+All job actions work with `--local`. IDs use `local-N`. Local jobs stay off the controller, but appear in combined CLI listings.
 
 The CLI starts a worker on demand as the same user. Existing workers keep their settings. Match `JOBD_STATE_DIR` (default `~/.local/state/jobd-worker`). The CLI uses an owner-only Unix socket, without TCP or an API key. Only the worker opens queue storage. `--queue` and `--controller` do not select local queues.
 
@@ -86,17 +86,23 @@ Persistent pending jobs survive restart. Previously running jobs fail, without r
 
 ## Listing jobs
 
-`jobd` and `jobd -l` show:
+With an API key, `jobd` and `jobd -l` show remote jobs first, then local fallback jobs. Combined listings never start a local worker. A missing local worker is skipped.
+
+If one queue fails, the other is shown with a warning. If both fail, listing returns an error. `jobd --local -l` shows only local jobs. Without a key, listing uses local mode and starts the worker if needed.
+
+Actions still target one queue. Use `jobd --local -k local-1` for local jobs and `jobd -k 42` for remote jobs. Default IDs never span queues.
 
 ```text
 ID  STATE  ELAPSED  PROGRESS  HOST  WORKER  EXIT  OUTPUT  COMMAND
 ```
 
+Numeric IDs are remote jobs. `local-N` IDs are local fallback jobs.
+
 - `PROGRESS`: one decimal place. Starts at `0.0%`; success sets `100.0%`. Failure keeps the last value. See [progress reporting](../worker/README.md#reporting-progress-from-a-job).
 - `ELAPSED`: whole seconds from assignment to now or completion. Includes launch/reporting delays. Queued jobs show `-`. Rerun to refresh.
-- `COMMAND`: copyable Bash/Zsh quoting. Copy only this cell. Local shell execution uses your local environment and directory.
+- `COMMAND`: Bash/Zsh quoting, capped at 120 characters with `...`. Truncation affects display only. Only untruncated commands can be copied for execution.
 
-Match workers by hostname and `~/.local/state/jobd-worker/worker-id`. Listings show controller assignments, not live process checks. Disconnected workers may still look running. Idle workers have no running row.
+Match workers by hostname and `~/.local/state/jobd-worker/worker-id`. Remote rows show controller assignments, not live process checks. Disconnected workers may still look running. Idle workers have no running row.
 
 Lists use pages of 100, not a snapshot. Concurrent changes can affect pagination.
 

@@ -11,14 +11,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 	"unicode"
 )
 
 const help = `Usage: jobd [--controller URL] [--queue NAME] [--local] [action | COMMAND [ARGS...]]
 Actions:
-  -l               List jobs across workers in this queue (default)
+  -l               List remote and local jobs (default; --local lists local only)
   COMMAND [ARGS...] Submit a command and print its job ID
   -C               Clear finished job records (keep log files)
   -o [ID]          Print output path on executing host (last run by default)
@@ -121,6 +120,9 @@ func (c *client) request(method, path string, body, result any) error {
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
+		if method == http.MethodGet {
+			return fmt.Errorf("%s %s: %w", method, path, err)
+		}
 		return fmt.Errorf("%s %s: %w (mutation outcome may be unknown; inspect the queue before retrying)", method, path, err)
 	}
 	defer res.Body.Close()
@@ -255,6 +257,12 @@ func run(args []string, out, diagnostic io.Writer) error {
 		}
 		return manageWorker(action, address, queue, out, diagnostic)
 	}
+	if action == "-l" && len(args) != 0 {
+		return fmt.Errorf("-l takes no arguments")
+	}
+	if !local && action == "-l" && strings.TrimSpace(os.Getenv("JOBD_API_KEY")) != "" {
+		return listCombined(address, queue, stateDir, out, diagnostic)
+	}
 	if strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == "" {
 		local = true
 		if action == "-l" {
@@ -310,37 +318,11 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		return err
 	}
 	if action == "-l" {
-		w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-		now := time.Now()
-		fmt.Fprintln(w, "ID\tSTATE\tELAPSED\tPROGRESS\tHOST\tWORKER\tEXIT\tOUTPUT\tCOMMAND")
-		for offset := 0; ; offset += 100 {
-			var page struct {
-				Jobs []job `json:"jobs"`
-			}
-			if err := c.request("GET", fmt.Sprintf("/jobs?limit=100&offset=%d", offset), nil, &page); err != nil {
-				return err
-			}
-			for _, j := range page.Jobs {
-				exit := "-"
-				if j.ExitCode != nil {
-					exit = strconv.Itoa(*j.ExitCode)
-				}
-				progress := "-"
-				if j.Progress != nil {
-					progress = fmt.Sprintf("%.1f%%", *j.Progress*100)
-				}
-				state := j.Status
-				if state == "running" && j.CancelRequested != 0 {
-					state = "cancelling"
-				}
-				// Quote host/path as well so tabs and newlines cannot corrupt the table.
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, state, elapsed(j, now), progress, strconv.Quote(value(j.Hostname)), value(j.WorkerID), exit, strconv.Quote(value(j.OutputPath)), displayCommand(j.Command))
-			}
-			if len(page.Jobs) < 100 {
-				break
-			}
+		jobs, err := fetchJobs(c)
+		if err != nil {
+			return err
 		}
-		return w.Flush()
+		return printJobs(out, jobs)
 	}
 	if action == "-C" {
 		return c.request("POST", "/jobs/clear", struct{}{}, nil)

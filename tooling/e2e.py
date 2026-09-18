@@ -54,7 +54,8 @@ def main():
         env.update({"WRANGLER_SEND_METRICS": "false", "CI": "true"})
         port = free_port()
         address = f"http://127.0.0.1:{port}"
-        env.update({"JOBD_CONTROLLER": address, "JOBD_QUEUE": "e2e", "JOBD_API_KEY": secrets.token_hex(32)})
+        env.update({"JOBD_CONTROLLER": address, "JOBD_QUEUE": "e2e", "JOBD_API_KEY": secrets.token_hex(32),
+                    "JOBD_STATE_DIR": str(directory / "unused-local-state")})
         # Keep the test key separate from developer secrets and out of argv/logs.
         dev_vars = directory / "controller.env"
         dev_vars.write_text("JOBD_API_KEY=" + env["JOBD_API_KEY"] + "\n")
@@ -367,14 +368,22 @@ def main():
             # Copy the actual COMMAND table cell into Bash, and verify argv survives.
             copy_args = ["hello world", "", "it's fine", "$HOME", "$(printf injected)",
                          "`printf injected`", "*.go", "~", "a;b", "line1\nline2", "a\tb", "\\path\\"]
-            copy_id = submit("sh", "-c", 'printf "%s\\0" "$@"', "sh", *copy_args)
-            row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == copy_id)
+            for offset in range(0, len(copy_args), 3):
+                args = copy_args[offset:offset + 3]
+                copy_id = submit("sh", "-c", 'printf "%s\\0" "$@"', "sh", *args)
+                row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == copy_id)
+                command = row.split(None, 8)[8]
+                pasted = subprocess.run(["bash", "-c", command], capture_output=True, timeout=10)
+                check(pasted.returncode == 0, f"Pasted command failed: {pasted.stderr!r}")
+                check(pasted.stdout == b"".join(arg.encode() + b"\0" for arg in args), "Copied COMMAND changed arguments")
+                call("-r", copy_id)
+            long_id = submit("echo", "x" * 200)
+            row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == long_id)
             command = row.split(None, 8)[8]
-            pasted = subprocess.run(["bash", "-c", command], capture_output=True, timeout=10)
-            check(pasted.returncode == 0, f"Pasted command failed: {pasted.stderr!r}")
-            check(pasted.stdout == b"".join(arg.encode() + b"\0" for arg in copy_args), "Copied COMMAND changed arguments")
-            call("-r", copy_id)
-            print("PASS copied COMMAND preserves quoting, empty args, metacharacters and control characters", flush=True)
+            check(len(command) == 120 and command.endswith("..."), "long command was not truncated")
+            check(api(f"/jobs/{long_id}")["command"] == ["echo", "x" * 200], "truncation changed stored command")
+            call("-r", long_id)
+            print("PASS COMMAND quoting and display-only truncation", flush=True)
             env["JOBD_QUEUE"] = "local-idle"
             local_state = directory / "worker-local"
             remote_marker = directory / "remote-first"
@@ -393,6 +402,9 @@ def main():
             eventually("controller job runs before local", lambda: api(f"/jobs/{remote_id}")["status"] == "succeeded")
             output_paths.add(api(f"/jobs/{remote_id}")["output_path"])
             check("queued" in call(*local_options, "-l").stdout, "local job ran before idle delay")
+            combined = call("-l").stdout.splitlines()
+            combined_ids = [row.split()[0] for row in combined[1:]]
+            check(combined_ids == [remote_id, local_id], "combined listing lost or duplicated jobs")
             stop(local_worker)
             restarted_at = time.monotonic()
             local_worker = start("worker-local-restarted", local_worker_command, ROOT)

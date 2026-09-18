@@ -190,6 +190,7 @@ func TestDefaultsAndOutput(t *testing.T) {
 }
 
 func TestListProgressAndCancellation(t *testing.T) {
+	t.Setenv("JOBD_STATE_DIR", t.TempDir())
 	t.Setenv("JOBD_API_KEY", "test-key")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"jobs":[{"id":"job","status":"running","progress":0.5,"cancel_requested":1,"command":["sleep","60"]}]}`)
@@ -212,6 +213,7 @@ func TestListProgressAndCancellation(t *testing.T) {
 }
 
 func TestListPagination(t *testing.T) {
+	t.Setenv("JOBD_STATE_DIR", t.TempDir())
 	t.Setenv("JOBD_API_KEY", "test-key")
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
