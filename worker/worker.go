@@ -7,11 +7,8 @@ import (
 	"time"
 )
 
-const localIdleDelay = 30 * time.Second
-
 type Worker struct {
 	localQueue        *localQueue
-	localDelay        time.Duration // Zero uses the production 30-second delay.
 	client            *ControllerClient
 	hostname          string
 	pollInterval      time.Duration
@@ -49,7 +46,6 @@ func (w *Worker) Run(ctx context.Context) error {
 			return err
 		}
 	}
-	idle := idleWindow{delay: w.localDelay}
 	for ctx.Err() == nil {
 		var job *Job
 		var err error
@@ -59,9 +55,9 @@ func (w *Worker) Run(ctx context.Context) error {
 				return fmt.Errorf("claim: %w", err)
 			}
 		}
-		// Prefer controller work when configured; local-only mode needs no idle delay.
+		// Claim local work only when the controller has no job, or is not configured.
 		var backend jobBackend = w.client
-		if job == nil && (w.client == nil || idle.observe(time.Now())) && ctx.Err() == nil {
+		if job == nil && ctx.Err() == nil {
 			job, err = w.localQueue.claim()
 			if err != nil {
 				return fmt.Errorf("claim local job: %w", err)
@@ -77,10 +73,6 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		if err := w.runJob(ctx, *job, backend); err != nil {
 			return err
-		}
-		if backend == w.client {
-			// Start a fresh idle interval at the next empty controller poll.
-			idle.reset()
 		}
 	}
 	return ctx.Err()

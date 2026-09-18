@@ -33,7 +33,7 @@ For a standalone Linux binary, set `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`. Use 
 
 Flags override environment values. Interval flags use seconds.
 
-Set `JOBD_API_KEY` to the controller's shared key. Without it, the worker runs only local jobs, with no idle delay. Restart to apply environment changes. Use HTTPS outside localhost.
+Set `JOBD_API_KEY` to the controller's shared key. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
 
 The state directory holds the worker ID. Use separate directories for separate daemons. Never copy an identity to another VM.
 
@@ -92,7 +92,7 @@ The CLI connects to `<state-dir>/local/control.sock`. The socket is `0600`; its 
 
 `jobd --local job remove --all` asks for confirmation before atomically deleting queued and finished local records. The local socket endpoint is `POST /jobs/remove-all`; it returns `removed` and `kept_running` counts. Running jobs and their cancellation state remain intact, output files are kept, and job IDs are never reset.
 
-Controller jobs take priority. Local work becomes eligible 30 seconds after the first successful empty claim. Controller work resets the timer; request failures do not. Retries can delay local work. Without a key, local work starts without this delay.
+Controller jobs take priority. Local work starts immediately after a successful empty controller claim. Request failures block local work until a claim succeeds. Without a key, local work runs directly without controller requests.
 
 A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution, progress and cancellation match controller jobs.
 

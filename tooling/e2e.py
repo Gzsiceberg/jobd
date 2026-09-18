@@ -392,7 +392,7 @@ def main():
             check(api(f"/jobs/{long_id}")["command"] == ["echo", "x" * 200], "truncation changed stored command")
             call("-r", long_id)
             print("PASS COMMAND quoting and display-only truncation", flush=True)
-            env["JOBD_QUEUE"] = "local-idle"
+            env["JOBD_QUEUE"] = "local-priority"
             local_state = directory / "worker-local"
             remote_marker = directory / "remote-first"
             env["JOBD_STATE_DIR"] = str(local_state)
@@ -409,22 +409,20 @@ def main():
             check(local_id.startswith("local-"), "local submission ID")
             eventually("controller job runs before local", lambda: api(f"/jobs/{remote_id}")["status"] == "succeeded")
             output_paths.add(api(f"/jobs/{remote_id}")["output_path"])
-            check("queued" in call(*local_options, "-l").stdout, "local job ran before idle delay")
+            eventually("local job completes without idle delay", lambda: "succeeded" in call(*local_options, "-l").stdout, timeout=10)
             combined = call("-l").stdout.splitlines()
             combined_ids = [row.split()[0] for row in combined[1:]]
             check(combined_ids == [remote_id, local_id], "combined listing lost or duplicated jobs")
             stop(local_worker)
-            restarted_at = time.monotonic()
             local_worker = start("worker-local-restarted", local_worker_command, ROOT)
             eventually("restarted local worker socket", lambda: (local_state / "local/control.sock").exists())
-            eventually("persistent local job completes", lambda: "succeeded" in call(*local_options, "-l").stdout, timeout=45)
-            check(time.monotonic() - restarted_at >= 30, "local job skipped production idle delay")
+            check("succeeded" in call(*local_options, "-l").stdout, "persistent local result lost after restart")
             path = call(*local_options, "-o", local_id).stdout.strip()
             output_paths.add(path)
             check(Path(path).read_text() == "local output\n", "local output mismatch")
             check(len(jobs()) == 1, "local job was sent to controller")
 
-            # Once idle, local work uses the same progress/cancel/execution flow.
+            # With no controller job available, local work uses the same progress/cancel/execution flow.
             work = directory / "local-progress"
             work.mkdir()
             progress_id = call(*local_options, "uv", "run", fixture, "cancel", str(work)).stdout.strip()
@@ -458,7 +456,7 @@ def main():
             check(len(call(*local_options, "-l").stdout.splitlines()) == 1, "local clear left finished jobs")
             stop(local_worker)
             check(local_worker.returncode == 0, "local worker shutdown failed")
-            print("PASS persistent local submission, controller priority, real 30-second idle delay, local progress/cancel/reorder/default IDs/output and key filtering", flush=True)
+            print("PASS persistent local submission, controller priority, immediate local execution, local progress/cancel/reorder/default IDs/output and key filtering", flush=True)
             # No credentials: both binaries automatically select local-only mode.
             env.pop("JOBD_API_KEY")
             env.pop("JOBD_LOCAL_PERSIST")

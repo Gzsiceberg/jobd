@@ -76,7 +76,7 @@ Covers:
 - Output files and invalid operations.
 - Progress buffering, thresholds, timing and final reports.
 - Process-group cancellation, socket cleanup and worker reuse.
-- Local/remote parity, controller priority and the 30-second fallback delay.
+- Local/remote parity, controller priority and immediate local execution after an empty controller claim.
 - Memory and persistent queues across restart.
 - Detached auto-start, restart and stop.
 

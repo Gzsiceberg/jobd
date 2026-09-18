@@ -31,7 +31,7 @@ or a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
 Authentication: JOBD_API_KEY (controller requests only). Without it, local mode is automatic.
 --local uses the same actions against the local worker's single queue.
-Local jobs run without an idle delay when no key is set; otherwise after 30 seconds of controller idle time.
+Local jobs run when the controller has no job available, or directly when no key is set.
 JOBD_STATE_DIR selects the local worker (default ~/.local/state/jobd-worker).
 Output files remain on the executing worker, not on the CLI machine.
 `

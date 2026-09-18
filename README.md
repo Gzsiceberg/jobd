@@ -27,7 +27,7 @@ jobd CLI → Cloudflare Controller ← Worker → Local Process
 - **Controller:** TypeScript/Hono API with a separate SQLite-backed Durable Object for each queue.
 - **CLI:** Go `jobd` client with tsp-style submission, listing, output inspection, cancellation and queue management.
 - **Worker:** Go daemon that executes one command at a time, buffers progress updates and handles process-group shutdown.
-- **Local fallback:** `jobd --local COMMAND...` queues work on this machine, eligible after 30 seconds without controller jobs. See [local jobs](cli/README.md#local-fallback-jobs).
+- **Local fallback:** `jobd --local COMMAND...` queues work on this machine, runs as soon as the controller has no job available. See [local jobs](cli/README.md#local-fallback-jobs).
 
 Job lifecycle: `queued → running → succeeded | failed`.
 

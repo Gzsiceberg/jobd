@@ -23,24 +23,6 @@ func TestRunRequiresLocalQueue(t *testing.T) {
 	_ = (&Worker{}).Run(context.Background())
 }
 
-func TestIdleWindow(t *testing.T) {
-	now := time.Now()
-	idle := idleWindow{}
-	if idle.observe(now) || idle.observe(now.Add(29*time.Second)) {
-		t.Fatal("eligible before 30s")
-	}
-	if !idle.observe(now.Add(30 * time.Second)) {
-		t.Fatal("not eligible at 30s")
-	}
-	if !idle.observe(now.Add(time.Hour)) {
-		t.Fatal("elapsed idle time was lost")
-	}
-	idle.reset()
-	if idle.observe(now.Add(2 * time.Hour)) {
-		t.Fatal("controller work did not reset idle")
-	}
-}
-
 func TestControllerPriorityAndNonPreemptiveLocalJobs(t *testing.T) {
 	dir := t.TempDir()
 	q, err := openLocalQueue(dir, false)
@@ -92,7 +74,6 @@ func TestControllerPriorityAndNonPreemptiveLocalJobs(t *testing.T) {
 	})
 	worker := testWorker(t, client)
 	worker.localQueue = q
-	worker.localDelay = 20 * time.Millisecond
 	err = worker.Run(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run: %v", err)
@@ -129,7 +110,46 @@ func TestLocalShutdownPersistsFailure(t *testing.T) {
 	}
 }
 
-func TestClaimRetryPreservesIdleTime(t *testing.T) {
+func TestLocalRunsAfterFirstSuccessfulEmptyClaim(t *testing.T) {
+	q := testLocalQueue(t)
+	q.submit([]string{"true"})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var claims atomic.Int32
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/claim") {
+			job, _ := q.get("local-1")
+			switch claims.Add(1) {
+			case 1:
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			case 2:
+				if job.Status != "queued" {
+					t.Errorf("local job ran before successful empty claim: %s", job.Status)
+				}
+			default:
+				if job.Status != "succeeded" {
+					t.Errorf("local job did not run after first empty claim: %s", job.Status)
+				}
+				cancel()
+			}
+			fmt.Fprint(w, `{"job":null}`)
+			return
+		}
+		fmt.Fprint(w, `{}`)
+	})
+	worker := testWorker(t, client)
+	worker.localQueue = q
+	if err := worker.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("run: %v", err)
+	}
+	job, _ := q.get("local-1")
+	if job.OutputPath != "" {
+		os.Remove(job.OutputPath)
+	}
+}
+
+func TestClaimRetriesUntilSuccessfulEmptyResponse(t *testing.T) {
 	var calls atomic.Int32
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
@@ -138,12 +158,8 @@ func TestClaimRetryPreservesIdleTime(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"job":null}`)
 	})
-	idle := idleWindow{since: time.Now().Add(-localIdleDelay)}
 	job, err := client.Claim(context.Background())
 	if err != nil || job != nil || calls.Load() != 2 {
 		t.Fatalf("job=%v calls=%v err=%v", job, calls.Load(), err)
-	}
-	if !idle.observe(time.Now()) {
-		t.Fatal("claim retry reset the idle interval")
 	}
 }
