@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -69,7 +70,20 @@ func newManagementCommand(options *cliOptions, input io.Reader, out, diagnostic 
 // non-runnable group. Typos must fail, never masquerade as a successful action.
 func strictCommandGroups(command *cobra.Command) {
 	if !command.Runnable() {
-		command.Args = cobra.NoArgs
+		command.Args = func(cmd *cobra.Command, args []string) error {
+			if err := cobra.NoArgs(cmd, args); err != nil {
+				prefix := cmd
+				for prefix.Parent() != nil && prefix.Parent().Parent() != nil {
+					prefix = prefix.Parent()
+				}
+				if prefix.Parent() != nil {
+					// Show only the reserved prefix, not arguments that may contain secrets.
+					return fmt.Errorf("%w\nHint: to submit a job starting with %q, use: jobd -- %s [ARGS...]", err, prefix.Name(), prefix.Name())
+				}
+				return err
+			}
+			return nil
+		}
 		command.RunE = func(cmd *cobra.Command, _ []string) error { return cmd.Help() }
 	}
 	for _, child := range command.Commands() {
