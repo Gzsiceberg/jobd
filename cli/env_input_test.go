@@ -37,6 +37,60 @@ func TestReadEnvAssignments(t *testing.T) {
 	}
 }
 
+func TestEnvValuePreview(t *testing.T) {
+	for _, tc := range []struct{ value, want string }{
+		{"", "Received 0 characters"},
+		{"short-secret", "Received 12 characters"},
+		{"abcd-middle-wxyz", "Received 16 characters: \"abcd…wxyz\""},
+		{strings.Repeat("界", 13), "Received 13 characters: \"界界界界…界界界界\""},
+		{"\x1b[2Jmiddle-wxyz", "Received 15 characters: \"\\x1b[2J…wxyz\""},
+	} {
+		if got := envValuePreview(tc.value); got != tc.want {
+			t.Errorf("preview = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+func TestConfirmedEnvValue(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		secrets, answers []string
+		want             string
+		fail             bool
+	}{
+		{"default yes", []string{"secret"}, []string{""}, "secret", false},
+		{"explicit yes", []string{"secret"}, []string{"YES"}, "secret", false},
+		{"retry", []string{"wrong", "correct"}, []string{"n", "y"}, "correct", false},
+		{"invalid answer", []string{"secret"}, []string{"maybe", "y"}, "secret", false},
+		{"cancel", []string{"secret"}, nil, "", true},
+		{"read failure", nil, nil, "", true},
+		{"invalid value", []string{"bad\x00value"}, []string{"y"}, "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := func(values []string) func() (string, error) {
+				return func() (string, error) {
+					if len(values) == 0 {
+						return "", io.EOF
+					}
+					value := values[0]
+					values = values[1:]
+					return value, nil
+				}
+			}
+			var prompts strings.Builder
+			got, err := readConfirmedEnvValue("API_KEY", &prompts, reader(tc.secrets), reader(tc.answers))
+			if (err != nil) != tc.fail || got != tc.want {
+				t.Fatalf("unexpected result: %v", err)
+			}
+			for _, secret := range tc.secrets {
+				if strings.Contains(prompts.String(), secret) {
+					t.Fatal("full secret leaked")
+				}
+			}
+		})
+	}
+}
+
 func TestEnvInputEnterWithoutEOF(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer reader.Close()

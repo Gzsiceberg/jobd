@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -34,20 +35,24 @@ func readEnvAssignments(args []string, input io.Reader, prompts io.Writer) ([]st
 		if strings.Contains(arg, "=") {
 			continue
 		}
+		if terminalFD >= 0 {
+			value, err := readConfirmedEnvValue(arg, prompts, func() (string, error) {
+				value, err := term.ReadPassword(terminalFD)
+				return string(value), err
+			}, func() (string, error) {
+				if !scanner.Scan() {
+					return "", io.EOF
+				}
+				return scanner.Text(), nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			result[i] = arg + "=" + value
+			continue
+		}
 		if _, err := fmt.Fprintf(prompts, "%s (press Enter): ", arg); err != nil {
 			return nil, err
-		}
-		if terminalFD >= 0 {
-			value, err := term.ReadPassword(terminalFD)
-			_, newlineErr := fmt.Fprintln(prompts)
-			if err != nil {
-				return nil, fmt.Errorf("unable to read hidden value for %s", arg)
-			}
-			if newlineErr != nil {
-				return nil, newlineErr
-			}
-			result[i] = arg + "=" + string(value)
-			continue
 		}
 		if !scanner.Scan() {
 			return nil, fmt.Errorf("unable to read value for %s: expected a line of at most 4096 UTF-8 bytes", arg)
@@ -57,7 +62,57 @@ func readEnvAssignments(args []string, input io.Reader, prompts io.Writer) ([]st
 	return result, nil
 }
 
-// Never include secret values in output or errors.
+// Only long secrets expose a small, escaped prefix and suffix. Quoting prevents
+// control characters in pasted values from being interpreted by the terminal.
+func envValuePreview(value string) string {
+	runes := []rune(value)
+	preview := fmt.Sprintf("Received %d characters", len(runes))
+	if len(runes) > 12 {
+		preview += ": " + strconv.Quote(string(runes[:4])+"…"+string(runes[len(runes)-4:]))
+	}
+	return preview
+}
+
+func readConfirmedEnvValue(name string, prompts io.Writer, readSecret, readAnswer func() (string, error)) (string, error) {
+	for {
+		if _, err := fmt.Fprintf(prompts, "%s (hidden; press Enter): ", name); err != nil {
+			return "", err
+		}
+		value, err := readSecret()
+		if _, writeErr := fmt.Fprintln(prompts); writeErr != nil {
+			return "", writeErr
+		}
+		if err != nil {
+			return "", fmt.Errorf("unable to read hidden value for %s", name)
+		}
+		if len(value) > 4096 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return "", fmt.Errorf("value must be UTF-8 without NUL, at most 4096 bytes")
+		}
+		if _, err := fmt.Fprintln(prompts, envValuePreview(value)); err != nil {
+			return "", err
+		}
+		for {
+			if _, err := fmt.Fprint(prompts, "Save? [Y/n] "); err != nil {
+				return "", err
+			}
+			answer, err := readAnswer()
+			if err != nil {
+				return "", fmt.Errorf("confirmation cancelled for %s; no secrets saved", name)
+			}
+			switch strings.ToLower(strings.TrimSpace(answer)) {
+			case "", "y", "yes":
+				return value, nil
+			case "n", "no":
+				break
+			default:
+				continue
+			}
+			break
+		}
+	}
+}
+
+// Never include secret values in upload output or errors.
 func runEnv(c *client, action string, args []string, out io.Writer) error {
 	if c.local || !strings.HasPrefix(c.base, "https://") {
 		return fmt.Errorf("queue environment requires a remote HTTPS controller")
