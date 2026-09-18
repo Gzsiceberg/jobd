@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { drainBody } from './drain-body';
 
 const queueName = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/);
 
@@ -9,6 +10,7 @@ export function createQueueApi(
   apiKey?: string,
 ) {
   const app = new Hono();
+  app.use('*', drainBody);
   app.use('*', async (c, next) => {
     if (!apiKey?.trim()) {
       return c.json(

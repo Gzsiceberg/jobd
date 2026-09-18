@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { ApiError } from './errors';
+import { drainBody } from './drain-body';
 import type { Scheduler } from '../jobs/scheduler';
 
 const text = z.string().trim().min(1).max(4096);
@@ -34,6 +35,7 @@ const failure = owner.extend({
 /** HTTP validation; the scheduler owns persistence and transactions. */
 export function createApi(scheduler: Scheduler) {
   const app = new Hono();
+  app.use('*', drainBody);
   app.onError((error, c) => {
     if (error instanceof z.ZodError)
       return c.json({ error: error.issues }, 400);
