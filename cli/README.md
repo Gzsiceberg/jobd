@@ -101,7 +101,7 @@ Numeric IDs are remote jobs. `local-N` IDs are local fallback jobs.
 - `WORKER`: first 8 characters of the ID. Colliding prefixes expand within the listing. Full IDs remain unchanged.
 - `PROGRESS`: one decimal place. Starts at `0.0%`; success sets `100.0%`. Failure keeps the last value. See [progress reporting](../worker/README.md#reporting-progress-from-a-job).
 - `ELAPSED`: whole seconds from assignment to now or completion. Includes launch/reporting delays. Queued jobs show `-`. Rerun to refresh.
-- `COMMAND`: Bash/Zsh quoting, capped at 120 characters with `...`. Truncation affects display only. Only untruncated commands can be copied for execution.
+- `COMMAND`: Bash/Zsh quoting, capped at 60 characters with `...`. Truncation affects display only. Only untruncated commands can be copied for execution.
 
 Match workers by hostname and `~/.local/state/jobd-worker/worker-id`. Remote rows show controller assignments, not live process checks. Disconnected workers may still look running. Idle workers have no running row.
 

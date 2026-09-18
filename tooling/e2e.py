@@ -368,8 +368,8 @@ def main():
             # Copy the actual COMMAND table cell into Bash, and verify argv survives.
             copy_args = ["hello world", "", "it's fine", "$HOME", "$(printf injected)",
                          "`printf injected`", "*.go", "~", "a;b", "line1\nline2", "a\tb", "\\path\\"]
-            for offset in range(0, len(copy_args), 3):
-                args = copy_args[offset:offset + 3]
+            for arg in copy_args:
+                args = [arg]
                 copy_id = submit("sh", "-c", 'printf "%s\\0" "$@"', "sh", *args)
                 row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == copy_id)
                 command = row.split(None, 8)[8]
@@ -380,7 +380,7 @@ def main():
             long_id = submit("echo", "x" * 200)
             row = next(line for line in call("-l").stdout.splitlines() if line.split()[0] == long_id)
             command = row.split(None, 8)[8]
-            check(len(command) == 120 and command.endswith("..."), "long command was not truncated")
+            check(len(command) == 60 and command.endswith("..."), "long command was not truncated")
             check(api(f"/jobs/{long_id}")["command"] == ["echo", "x" * 200], "truncation changed stored command")
             call("-r", long_id)
             print("PASS COMMAND quoting and display-only truncation", flush=True)

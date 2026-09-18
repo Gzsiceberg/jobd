@@ -56,7 +56,7 @@ func listCombined(address, queue, stateDir string, out, diagnostic io.Writer) er
 	return printJobs(out, remoteJobs, localJobs)
 }
 
-const commandDisplayLimit = 120
+const commandDisplayLimit = 60
 
 func listedCommand(argv []string) string {
 	command := displayCommand(argv)
