@@ -48,6 +48,13 @@ New queues get the current schema. Existing queues must already match it and use
 
 Lists use pages of up to 100, not snapshots. Concurrent changes can affect pagination.
 
+## Development tooling
+
+Wrangler is pinned to 4.113.0 as a workaround for local-dev connection-loss regressions
+reported from 4.114.0 onward ([upstream report](https://github.com/cloudflare/workers-sdk/issues/15002)).
+Validate upgrades with the full GitHub end-to-end job, not only local runs; do not retry
+failed submissions automatically because their outcome may be unknown.
+
 ## Deployment and limits
 
 From the repository root:
