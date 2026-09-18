@@ -121,6 +121,21 @@ export class Scheduler {
     );
   }
 
+  removeAll(): { removed: number; kept_running: number } {
+    return this.storage.transactionSync(() => {
+      this.storage.sql.exec("DELETE FROM jobs WHERE status != 'running'");
+      const removed = this.storage.sql
+        .exec<{ count: number }>('SELECT changes() AS count')
+        .toArray()[0].count;
+      const kept_running = this.storage.sql
+        .exec<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM jobs WHERE status = 'running'",
+        )
+        .toArray()[0].count;
+      return { removed, kept_running };
+    });
+  }
+
   remove(id: string): void {
     this.storage.transactionSync(() => {
       if (this.job(id).status === 'running')

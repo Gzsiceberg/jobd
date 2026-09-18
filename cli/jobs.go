@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/url"
@@ -59,6 +60,46 @@ func runAction(options cliOptions, action string, args []string, out, diagnostic
 		return err
 	}
 	return runJobs(c, action, args, out, diagnostic)
+}
+
+// Confirmation happens before any network request or local worker startup.
+func removeAllJobs(options cliOptions, input io.Reader, out, diagnostic io.Writer) error {
+	options.local = options.local || strings.TrimSpace(os.Getenv("JOBD_API_KEY")) == ""
+	confirmation := options.queue
+	target := fmt.Sprintf("queue %q on %s", options.queue, options.address)
+	var c *client
+	var err error
+	if options.local {
+		confirmation = "local"
+		target = fmt.Sprintf("local queue at %q", options.stateDir)
+		c, err = newLocalClient(options.stateDir)
+	} else {
+		c, err = newClient(options.address, options.queue)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(diagnostic, "Remove ALL queued and finished jobs from %s?\nRunning jobs, queue secrets, and output files will be kept. This cannot be undone.\nType %q to confirm: ", target, confirmation); err != nil {
+		return err
+	}
+	answer, err := bufio.NewReader(io.LimitReader(input, 256)).ReadString('\n')
+	if err != nil || strings.TrimSuffix(strings.TrimSuffix(answer, "\n"), "\r") != confirmation {
+		return fmt.Errorf("removal cancelled; confirmation did not match")
+	}
+	if options.local {
+		if err := manageWorker("--start", options.address, options.queue, io.Discard, diagnostic); err != nil {
+			return err
+		}
+	}
+	var result struct {
+		Removed     int64 `json:"removed"`
+		KeptRunning int64 `json:"kept_running"`
+	}
+	if err := c.request("POST", "/jobs/remove-all", struct{}{}, &result); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "Removed %d job(s); kept %d running job(s).\n", result.Removed, result.KeptRunning)
+	return err
 }
 
 // Both queues share validation, action defaults, pagination and table rendering.

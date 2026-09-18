@@ -1,9 +1,14 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+)
 
 func newJobCommand(options *cliOptions) *cobra.Command {
 	group := &cobra.Command{Use: "job", Short: "Manage jobs (direct submission and short flags also work)"}
+	var all bool
 	for _, spec := range []struct {
 		use, action, description string
 		args                     cobra.PositionalArgs
@@ -20,8 +25,17 @@ func newJobCommand(options *cliOptions) *cobra.Command {
 		command := &cobra.Command{
 			Use: spec.use, Short: spec.description, Args: spec.args,
 			RunE: func(cmd *cobra.Command, args []string) error {
+				if spec.action == "-r" && all {
+					if len(args) != 0 {
+						return fmt.Errorf("job remove --all cannot be combined with a job ID")
+					}
+					return removeAllJobs(*options, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				}
 				return runAction(*options, spec.action, args, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			},
+		}
+		if spec.action == "-r" {
+			command.Flags().BoolVar(&all, "all", false, "Remove all non-running jobs after confirmation; keep running jobs and log files")
 		}
 		if spec.action == "--" {
 			// Once the executable starts, its flags belong to it, not jobd.

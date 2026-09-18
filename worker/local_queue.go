@@ -323,6 +323,33 @@ func (q *localQueue) remove(id string) error {
 	}
 	return nil
 }
+
+type removeAllResult struct {
+	Removed     int64 `json:"removed"`
+	KeptRunning int64 `json:"kept_running"`
+}
+
+func (q *localQueue) removeAll() (removeAllResult, error) {
+	var result removeAllResult
+	tx, err := q.db.Begin()
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+	deleted, err := tx.Exec(`DELETE FROM jobs WHERE status!='running'`)
+	if err != nil {
+		return result, err
+	}
+	result.Removed, err = deleted.RowsAffected()
+	if err != nil {
+		return result, err
+	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM jobs WHERE status='running'`).Scan(&result.KeptRunning); err != nil {
+		return result, err
+	}
+	return result, tx.Commit()
+}
+
 func (q *localQueue) clear() error {
 	_, err := q.db.Exec(`DELETE FROM jobs WHERE status IN ('succeeded','failed')`)
 	return err

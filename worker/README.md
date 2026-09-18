@@ -90,6 +90,8 @@ Use `jobd --local COMMAND...` as the worker's user. Match `JOBD_STATE_DIR`. The 
 
 The CLI connects to `<state-dir>/local/control.sock`. The socket is `0600`; its directory is `0700`. There is no TCP listener or API key. Only the worker accesses SQLite. Transactions make claims and edits atomic.
 
+`jobd --local job remove --all` asks for confirmation before atomically deleting queued and finished local records. The local socket endpoint is `POST /jobs/remove-all`; it returns `removed` and `kept_running` counts. Running jobs and their cancellation state remain intact, output files are kept, and job IDs are never reset.
+
 Controller jobs take priority. Local work becomes eligible 30 seconds after the first successful empty claim. Controller work resets the timer; request failures do not. Retries can delay local work. Without a key, local work starts without this delay.
 
 A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution, progress and cancellation match controller jobs.

@@ -103,6 +103,19 @@ All job operations also have explicit forms that share the same implementation a
 
 Use `jobd --help`, `jobd help env`, or `jobd env set --help` for command help. `jobd env`, `jobd worker`, and `jobd job` show group help without performing operations. Generate shell completion with `jobd completion bash` (also supports Zsh, Fish, and PowerShell). Persistent `config` commands are not implemented yet.
 
+## Remove all non-running jobs
+
+```sh
+JOBD_QUEUE=batch jobd job remove --all
+jobd --local job remove --all
+```
+
+The command displays the target and asks you to type the queue name and press Enter (`batch` above, or `local` for the local queue). Nothing is removed on an empty answer, mismatch, or input error. There is no `--yes` bypass, and `--all` cannot be combined with a job ID. Without `JOBD_API_KEY`, the target is the local queue, as with other job actions; the prompt explicitly identifies it.
+
+This atomically removes **queued and finished** records in the selected queue. Running jobs are kept and counted in the result. Secrets, worker registrations, output files, and job ID sequences are preserved. The deletion applies to jobs present when the operation executes, including submissions made while the prompt was open. Jobs claimed before deletion are kept as running. No requests or worker startup occur until confirmation; failed requests are not retried automatically.
+
+`jobd job clear` / `jobd -C` still removes only finished records without this prompt.
+
 ## Per-queue environment secrets
 
 First configure the controller's [encryption key](../controller/README.md#queue-environment-secrets). Then:

@@ -107,6 +107,9 @@ func TestLocalSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	request("POST", "/jobs", string(body), 200)
+	if result := request("POST", "/jobs/remove-all", "{}", 200); result["removed"] != float64(1) || result["kept_running"] != float64(1) {
+		t.Fatalf("remove all: %+v", result)
+	}
 	request("POST", "/jobs", `{"command":["`+strings.Repeat("x", 2<<20)+`"]}`, 400)
 	request("GET", "/daemon/stop", "", 405)
 	if ctx.Err() != nil {

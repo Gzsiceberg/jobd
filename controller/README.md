@@ -35,6 +35,7 @@ Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use
 - Terminal reports are retry-safe. Their `progress` field is optional. Pre-launch failures may use `exit_code: null`.
 - Heartbeats return `cancel_job_id`, or `null`. Jobs expose `cancel_requested` as 0 or 1. A request does not mean the process stopped.
 - Worker status comes from assignments, not heartbeat payloads.
+- `POST /jobs/remove-all` with `{}` atomically deletes queued and finished records and returns `{"removed":N,"kept_running":N}`. Running jobs, worker assignments, queue secrets, and job ID sequences are preserved. Output files are never deleted. The CLI requires typed confirmation before calling this authenticated endpoint; direct API callers are responsible for their own confirmation. Deletion uses the jobs present at execution time, not a snapshot taken at the prompt.
 
 See [progress](../worker/README.md#reporting-progress-from-a-job) and [cancellation](../worker/README.md#remote-cancellation).
 
