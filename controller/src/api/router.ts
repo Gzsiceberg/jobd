@@ -18,10 +18,8 @@ const submission = z.object({
     ),
 });
 const registration = owner.extend({ hostname: text });
-const progress = owner.extend({ progress: z.number().min(0).max(1) });
 const completion = owner.extend({
   exit_code: z.literal(0),
-  progress: z.number().min(0).max(1).optional(),
 });
 const failure = owner.extend({
   exit_code: z
@@ -30,7 +28,6 @@ const failure = owner.extend({
     .refine((code) => code !== 0)
     .nullable(),
   error: text,
-  progress: z.number().min(0).max(1).optional(),
 });
 
 /** HTTP validation; the scheduler owns persistence and transactions. */
@@ -143,12 +140,6 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
     const job = scheduler.claim(c.req.param('id'));
     return c.json({ job, ...(job ? { environment } : {}) });
   });
-  app.post('/jobs/:id/progress', async (c) => {
-    const body = progress.parse(await c.req.json<unknown>());
-    return c.json(
-      scheduler.progress(c.req.param('id'), body.worker_id, body.progress),
-    );
-  });
   app.post('/jobs/:id/complete', async (c) => {
     const body = completion.parse(await c.req.json<unknown>());
     return c.json(
@@ -158,7 +149,6 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
         true,
         body.exit_code,
         null,
-        body.progress,
       ),
     );
   });
@@ -171,7 +161,6 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
         false,
         body.exit_code,
         body.error,
-        body.progress,
       ),
     );
   });

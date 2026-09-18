@@ -16,7 +16,7 @@ func TestExecuteJobInjectsSecretsWithoutChangingWorkerEnvironment(t *testing.T) 
 		io.WriteString(w, `{}`)
 	})
 	worker := &Worker{processGrace: time.Millisecond}
-	job := Job{ID: "1", Command: []string{"sh", "-c", `test "$API_KEY" = queue-value && test "$JOBD_CUSTOM" = allowed && test -n "$JOBD_PROGRESS_SOCKET"`}, queueEnv: map[string]string{"API_KEY": "queue-value", "JOBD_CUSTOM": "allowed"}}
+	job := Job{ID: "1", Command: []string{"sh", "-c", `test "$API_KEY" = queue-value && test "$JOBD_CUSTOM" = allowed`}, queueEnv: map[string]string{"API_KEY": "queue-value", "JOBD_CUSTOM": "allowed"}}
 	result := worker.executeJob(context.Background(), job, backend)
 	os.Remove(result.OutputPath)
 	if result.ExitCode == nil || *result.ExitCode != 0 {

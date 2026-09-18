@@ -74,7 +74,7 @@ Covers:
 
 - Authentication, CLI actions, default IDs, ordering, isolation and pagination.
 - Output files and invalid operations.
-- Progress buffering, thresholds, timing and final reports.
+- Job execution, output capture and final reports.
 - Process-group cancellation, socket cleanup and worker reuse.
 - Local/remote parity, controller priority and immediate local execution after an empty controller claim.
 - Memory and persistent queues across restart.

@@ -6,7 +6,7 @@ A Linux daemon. Runs one command at a time.
 
 ## Queue environment
 
-Controller claims deliver the queue's [encrypted-at-rest environment secrets](../controller/README.md#queue-environment-secrets) over HTTPS. The worker keeps decrypted values only in memory and injects them into the assigned job process, overriding inherited values. It does not save them in job records or local storage, or modify its own environment. Local jobs never receive queue secrets. `JOBD_` names are allowed, but `JOBD_API_KEY` and `JOBD_ENV_KEY` are stripped from job environments, and the worker sets `JOBD_PROGRESS_SOCKET` itself.
+Controller claims deliver the queue's [encrypted-at-rest environment secrets](../controller/README.md#queue-environment-secrets) over HTTPS. The worker keeps decrypted values only in memory and injects them into the assigned job process, overriding inherited values. It does not save them in job records or local storage, or modify its own environment. Local jobs never receive queue secrets. `JOBD_` names are allowed, but `JOBD_API_KEY` and `JOBD_ENV_KEY` are stripped from job environments.
 
 Changes apply on subsequent claims, not to running processes. Job code can read these values and may expose them through output or network requests; output files are not redacted. The worker host and submitted code must be trusted. Never configure the controller's `JOBD_ENV_KEY` on workers.
 
@@ -94,7 +94,7 @@ The CLI connects to `<state-dir>/local/control.sock`. The socket is `0600`; its 
 
 Controller jobs take priority. Local work starts immediately after a successful empty controller claim. Request failures block local work until a claim succeeds. Without a key, local work runs directly without controller requests.
 
-A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution, progress and cancellation match controller jobs.
+A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution and cancellation match controller jobs.
 
 | `JOBD_LOCAL_PERSIST` | Storage | On restart |
 | --- | --- | --- |
@@ -105,52 +105,6 @@ Invalid values are rejected. Export the setting and run `jobd worker restart` to
 
 Logs, identity and the daemon lock stay on disk in both modes. See [local CLI commands](../cli/README.md#local-fallback-jobs).
 
-## Reporting progress from a job
-
-Progress ranges from 0 to 1. It starts at 0; success sets 1. Arbitrary commands have no inferred intermediate progress.
-
-Send UTF-8 NDJSON to `JOBD_PROGRESS_SOCKET`:
-
-```json
-{"progress":0.5}
-```
-
-Wait for each newline-terminated reply:
-
-- `{"ok":true}`: buffered in memory, not yet uploaded or durable.
-- `{"ok":false,"error":"..."}`: rejected.
-
-Values must be finite and within range. Missing/null progress and unknown fields are rejected. Lower values are acknowledged but cannot reduce progress. Connections may be reused.
-
-### Upload rules
-
-The uploader sends the highest buffered value to `/jobs/:id/progress`:
-
-- Every 10 seconds.
-- Earlier when progress rises **more than 5 percentage points** since the last successful upload. Exactly 5 points waits.
-
-Heartbeats carry no progress. Socket handlers never wait for HTTP. Only one upload runs at once. Failures retry without advancing the last-successful value. Final reports include buffered progress. A crash loses unsent updates.
-
-### Python example
-
-From the repository root:
-
-```sh
-./cli/jobd uv run /absolute/path/on/worker/to/examples/progress.py
-watch -n 1 ./cli/jobd -l
-```
-
-[The example](../examples/progress.py) needs uv on the worker. Submission does not upload files. Jobs need no controller key or job ID for progress.
-
-### Socket permissions and limits
-
-- Socket: `0600`, inside a `0700` directory. Removed before the final report.
-- Messages: less than 4 KiB.
-- Connections: at most 16 per job.
-- Idle reads: 30 seconds. Reconnect after timeout.
-
-Same-user processes are trusted. Handle socket errors. One update per second is usually enough.
-
 ## Remote cancellation
 
 `jobd -k [ID]` requests cancellation of a running job. Without an ID, it selects the last-started remaining job. Use `-r` for queued jobs.
@@ -159,7 +113,7 @@ The request is durable and safe to repeat while pending. **Confirmation means re
 
 Offline or old workers leave cancellation pending. Upgrade both controller and workers before relying on it.
 
-The CLI shows `cancelling`; the API keeps `running` with `cancel_requested: 1`. The assignment stays held until reporting finishes. Confirmed cancellation becomes `failed` with `Job cancelled by user`. Progress and logs remain. If execution finishes first, its real outcome wins. Restart reports an unknown prior outcome.
+The CLI shows `cancelling`; the API keeps `running` with `cancel_requested: 1`. The assignment stays held until reporting finishes. Confirmed cancellation becomes `failed` with `Job cancelled by user`. Logs remain. If execution finishes first, its real outcome wins. Restart reports an unknown prior outcome.
 
 ## Source layout
 
@@ -169,5 +123,4 @@ The CLI shows `cancelling`; the API keeps `running` with `cancel_requested: 1`. 
 | `worker.go`, `active_job.go` | Worker lifecycle and cancellation |
 | `job.go`, `job_execution.go`, `executor_linux.go` | Job model and execution |
 | `client.go` | API client and retries |
-| `local.go`, `local_queue.go`, `local_socket.go` | Local scheduling, SQLite and socket API |
-| `progress_linux.go`, `progress_reporter_linux.go`, `progress_upload.go` | Progress socket, buffering and uploads |
+| `local_queue.go`, `local_socket.go` | Local scheduling, SQLite and socket API |

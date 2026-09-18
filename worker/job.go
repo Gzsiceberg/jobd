@@ -17,6 +17,5 @@ type Job struct {
 	OutputPath      string     `json:"output_path,omitempty"`
 	ExitCode        *int       `json:"exit_code,omitempty"`
 	Error           string     `json:"error,omitempty"`
-	Progress        float64    `json:"progress"`
 	CancelRequested int        `json:"cancel_requested"`
 }

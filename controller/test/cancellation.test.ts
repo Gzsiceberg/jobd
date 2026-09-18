@@ -29,14 +29,11 @@ it('persists cancellation until the owner reports, without releasing the running
   expect(() =>
     reopened.finish(job.id, 'b', false, -1, 'Job cancelled by user'),
   ).toThrow('not assigned');
-  reopened.progress(job.id, 'a', 0.5);
-  reopened.progress(job.id, 'a', 0.25);
   reopened.finish(job.id, 'a', false, -1, 'Job cancelled by user');
   reopened.finish(job.id, 'a', false, -1, 'Job cancelled by user');
   expect(reopened.job(job.id)).toMatchObject({
     status: 'failed',
     error: 'Job cancelled by user',
-    progress: 0.5,
   });
   expect(reopened.heartbeat('a').cancel_job_id).toBeNull();
   expect(reopened.claim('a')?.id).toBe(next.id);
@@ -49,6 +46,6 @@ it('preserves the real outcome if completion wins the cancellation race', () => 
   s.claim('w');
   s.cancel(j.id);
   s.finish(j.id, 'w', true, 0, null);
-  expect(s.job(j.id)).toMatchObject({ status: 'succeeded', progress: 1 });
+  expect(s.job(j.id)).toMatchObject({ status: 'succeeded' });
   expect(() => s.cancel(j.id)).toThrow('Only running');
 });

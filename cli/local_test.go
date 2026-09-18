@@ -43,8 +43,8 @@ func fakeLocalWorker(t *testing.T, handle http.HandlerFunc) string {
 
 func TestLocalCLI(t *testing.T) {
 	now := time.Now().Format(time.RFC3339Nano)
-	path, progress := "/tmp/local.log", 0.25
-	record := job{ID: "local-1", Status: "running", StartedAt: &now, OutputPath: &path, Progress: &progress, CancelRequested: 1, Command: []string{"echo", "a b", ""}}
+	path := "/tmp/local.log"
+	record := job{ID: "local-1", Status: "running", StartedAt: &now, OutputPath: &path, CancelRequested: 1, Command: []string{"echo", "a b", ""}}
 	var submits atomic.Int32
 	dir := fakeLocalWorker(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method + " " + r.URL.Path {
@@ -87,7 +87,7 @@ func TestLocalCLI(t *testing.T) {
 	if err := call("--local", "echo", "a b", ""); err != nil || out.String() != "local-1\n" {
 		t.Fatalf("submit: %s %v", out.String(), err)
 	}
-	if err := call("--local", "-l"); err != nil || !strings.Contains(out.String(), "cancelling") || strings.Contains(out.String(), "25.0%") || strings.Contains(out.String(), "PROGRESS") || !strings.Contains(out.String(), "ELAPSED") {
+	if err := call("--local", "-l"); err != nil || !strings.Contains(out.String(), "cancelling") || !strings.Contains(out.String(), "ELAPSED") {
 		t.Fatalf("list: %s %v", out.String(), err)
 	}
 	for _, args := range [][]string{{"--local", "-o"}, {"--local", "-o", "local-1"}} {

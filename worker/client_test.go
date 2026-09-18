@@ -68,9 +68,6 @@ func TestQueueScopedRequests(t *testing.T) {
 	if job, err := client.Claim(ctx); err != nil || job != nil {
 		t.Fatalf("claim: %v %v", job, err)
 	}
-	if err := client.Progress(ctx, "job", 0.5); err != nil {
-		t.Fatal(err)
-	}
 	if err := client.Output(ctx, "job", "/tmp/jobd-test.log"); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +80,7 @@ func TestQueueScopedRequests(t *testing.T) {
 	}
 	want := []string{
 		"/queues/batch-1/workers/register", "/queues/batch-1/workers/worker/heartbeat",
-		"/queues/batch-1/workers/worker/claim", "/queues/batch-1/jobs/job/progress",
+		"/queues/batch-1/workers/worker/claim",
 		"/queues/batch-1/jobs/job/output", "/queues/batch-1/jobs/job/complete", "/queues/batch-1/jobs/job/fail",
 	}
 	if !reflect.DeepEqual(paths, want) {

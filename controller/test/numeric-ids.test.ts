@@ -21,7 +21,6 @@ it('reopens without rewriting job IDs, assignments, metadata or queue order', ()
   const b = s.submit(['b']);
   const c = s.submit(['c']);
   s.claim('w');
-  s.progress(a.id, 'w', 0.5);
   s.cancel(a.id);
   s.output(a.id, 'w', '/tmp/existing.log');
   s.reorder(c.id);

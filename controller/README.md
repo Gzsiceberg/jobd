@@ -25,19 +25,18 @@ Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use
 | POST   | `/jobs/swap`               | `{"first":"ID1","second":"ID2"}`; queued only                       |
 | POST   | `/jobs/:id/output`         | `{"worker_id":"...","output_path":"/tmp/jobd-....log"}`             |
 | POST   | `/workers/register`        | `{"worker_id":"...","hostname":"vm-1"}`                             |
-| POST   | `/workers/:id/heartbeat`   | `{}`; no progress                                                   |
+| POST   | `/workers/:id/heartbeat`   | `{}`                                                   |
 | POST   | `/workers/:id/claim`       | `{}`                                                                |
-| POST   | `/jobs/:id/progress`       | `{"worker_id":"...","progress":0.5}`                                |
-| POST   | `/jobs/:id/complete`       | `{"worker_id":"...","exit_code":0,"progress":1}`                    |
-| POST   | `/jobs/:id/fail`           | `{"worker_id":"...","exit_code":1,"error":"failed","progress":0.5}` |
+| POST   | `/jobs/:id/complete`       | `{"worker_id":"...","exit_code":0}`                    |
+| POST   | `/jobs/:id/fail`           | `{"worker_id":"...","exit_code":1,"error":"failed"}` |
 
 - Claim returns `{"job":null}` or `{"job":{...}}`. Retrying returns the existing assignment.
-- Terminal reports are retry-safe. Their `progress` field is optional. Pre-launch failures may use `exit_code: null`.
+- Terminal reports are retry-safe. Pre-launch failures may use `exit_code: null`.
 - Heartbeats return `cancel_job_id`, or `null`. Jobs expose `cancel_requested` as 0 or 1. A request does not mean the process stopped.
 - Worker status comes from assignments, not heartbeat payloads.
 - `POST /jobs/remove-all` with `{}` atomically deletes queued and finished records and returns `{"removed":N,"kept_running":N}`. Running jobs, worker assignments, queue secrets, and job ID sequences are preserved. Output files are never deleted. The CLI requires typed confirmation before calling this authenticated endpoint; direct API callers are responsible for their own confirmation. Deletion uses the jobs present at execution time, not a snapshot taken at the prompt.
 
-See [progress](../worker/README.md#reporting-progress-from-a-job) and [cancellation](../worker/README.md#remote-cancellation).
+See [cancellation](../worker/README.md#remote-cancellation).
 
 ## Storage and IDs
 

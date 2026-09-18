@@ -296,81 +296,35 @@ def main():
                 call(*args, success=False)
             print("PASS invalid arguments and nonexistent-job errors", flush=True)
 
-            env["JOBD_QUEUE"] = "progress"
-            progress_worker = start("worker-progress", [str(worker), "--state-dir", str(directory / "worker-progress"),
+            env["JOBD_QUEUE"] = "cancellation"
+            cancel_worker = start("worker-cancellation", [str(worker), "--state-dir", str(directory / "worker-cancellation"),
                                     "--poll-interval", "0.1", "--heartbeat-interval", "0.2"], ROOT)
-            fixture = str(ROOT / "tooling/e2e_progress_job.py")
-            for mode in ["finish", "cancel"]:
-                work = directory / ("progress-" + mode)
-                work.mkdir()
-                progress_id = submit("uv", "run", fixture, mode, str(work))
-                eventually("Python job progress socket", lambda: (work / "ready.json").exists())
-                details = json.loads((work / "ready.json").read_text())
-                output_paths.add(api(f"/jobs/{progress_id}")["output_path"])
-                eventually("threshold uploads 25%", lambda: api(f"/jobs/{progress_id}")["progress"] == 0.25)
-
-                check("PROGRESS" not in call("-l").stdout.splitlines()[0], "progress column should be hidden")
-                (work / "half").touch()
-                eventually("50% acknowledged", lambda: (work / "half-acked").exists())
-                eventually("threshold uploads 50%", lambda: api(f"/jobs/{progress_id}")["progress"] == 0.5)
-                if mode == "finish":
-                    (work / "finish").touch()
-                    eventually("progress job completion", lambda: api(f"/jobs/{progress_id}")["status"] == "succeeded")
-                    check(api(f"/jobs/{progress_id}")["progress"] == 1, "success not 100%")
-                    call("-k", progress_id, success=False)
-                else:
-                    check("Cancellation requested" in call("-k", progress_id).stdout, "cancel not requested")
-                    check("cancelling" in call("-l").stdout, "pending cancellation not shown")
-                    call("-k")  # Default selects the last run; repeat pending request is safe.
-                    call("-r", progress_id, success=False)
-                    following = submit("echo", "worker survives cancellation")
-                    call("-k", following, success=False)  # Queued jobs use -r, not -k.
-                    eventually("remote cancellation acknowledgement", lambda: api(f"/jobs/{progress_id}")["status"] == "failed")
-                    cancelled = api(f"/jobs/{progress_id}")
-                    check(cancelled["error"] == "Job cancelled by user", "missing cancellation reason")
-                    check(cancelled["progress"] == 0.5, "cancelled job lost progress")
-                    for pid in [details["pid"], details["child_pid"]]:
-                        proc = Path(f"/proc/{pid}/stat")
-                        check(not proc.exists() or proc.read_text().split(")", 1)[1].split()[0] == "Z", "cancelled process survived SIGKILL")
-                    eventually("worker handles next job", lambda: api(f"/jobs/{following}")["status"] == "succeeded")
-                    output_paths.add(api(f"/jobs/{following}")["output_path"])
-                    check(progress_worker.poll() is None, "cancellation stopped worker")
-                check(not Path(details["socket"]).exists(), "finished job progress socket retained")
-            stop(progress_worker)
-            check(progress_worker.returncode == 0, "progress worker shutdown failed")
-            print("PASS buffered Python NDJSON progress via independent uploader: 25% -> 50% -> 100%, validation, monotonicity and socket cleanup", flush=True)
+            fixture = str(ROOT / "tooling/e2e_cancel_job.py")
+            work = directory / "cancellation"
+            work.mkdir()
+            cancel_id = submit("uv", "run", fixture, str(work))
+            eventually("cancellation job ready", lambda: (work / "ready.json").exists())
+            details = json.loads((work / "ready.json").read_text())
+            output_paths.add(api(f"/jobs/{cancel_id}")["output_path"])
+            check("Cancellation requested" in call("-k", cancel_id).stdout, "cancel not requested")
+            check("cancelling" in call("-l").stdout, "pending cancellation not shown")
+            call("-k")  # Default selects the last run; repeat pending request is safe.
+            call("-r", cancel_id, success=False)
+            following = submit("echo", "worker survives cancellation")
+            call("-k", following, success=False)  # Queued jobs use -r, not -k.
+            eventually("remote cancellation acknowledgement", lambda: api(f"/jobs/{cancel_id}")["status"] == "failed")
+            cancelled = api(f"/jobs/{cancel_id}")
+            check(cancelled["error"] == "Job cancelled by user", "missing cancellation reason")
+            for pid in [details["pid"], details["child_pid"]]:
+                proc = Path(f"/proc/{pid}/stat")
+                check(not proc.exists() or proc.read_text().split(")", 1)[1].split()[0] == "Z", "cancelled process survived SIGKILL")
+            eventually("worker handles next job", lambda: api(f"/jobs/{following}")["status"] == "succeeded")
+            output_paths.add(api(f"/jobs/{following}")["output_path"])
+            call("-k", following, success=False)
+            check(cancel_worker.poll() is None, "cancellation stopped worker")
+            stop(cancel_worker)
+            check(cancel_worker.returncode == 0, "cancellation worker shutdown failed")
             print("PASS -k explicit/default, cancelling display, SIGKILL of TERM-ignoring process group, worker continues", flush=True)
-
-            env["JOBD_QUEUE"] = "buffered-final"
-            quick_worker = start("worker-buffered-final", [str(worker), "--state-dir", str(directory / "worker-buffered-final"),
-                                  "--poll-interval", "0.1", "--heartbeat-interval", "60"], ROOT)
-            quick = submit("uv", "run", fixture, "quick-fail", str(directory))
-            eventually("final report uploads buffered progress", lambda: api(f"/jobs/{quick}")["status"] == "failed")
-            check(api(f"/jobs/{quick}")["progress"] == 0.04, "final buffered progress lost")
-            output_paths.add(api(f"/jobs/{quick}")["output_path"])
-            stop(quick_worker)
-            check(quick_worker.returncode == 0, "quick worker shutdown failed")
-            check(f"/queues/buffered-final/jobs/{quick}/progress " not in (directory / "controller.log").read_text(), "small progress uploaded before timer/finish")
-            print("PASS final failure flushes 4% before periodic upload, independent of heartbeat", flush=True)
-
-            env["JOBD_QUEUE"] = "timed-progress"
-            timed_dir = directory / "timed-progress"
-            timed_dir.mkdir()
-            timed_worker = start("worker-timed-progress", [str(worker), "--state-dir", str(directory / "worker-timed-progress"),
-                                  "--poll-interval", "0.1", "--heartbeat-interval", "60"], ROOT)
-            timed = submit("uv", "run", fixture, "timed", str(timed_dir))
-            eventually("5% buffered", lambda: (timed_dir / "ready").exists())
-            time.sleep(1)
-            check(api(f"/jobs/{timed}")["progress"] == 0, "exactly five points uploaded early")
-            eventually("10-second upload", lambda: api(f"/jobs/{timed}")["progress"] == 0.05, timeout=15)
-            (timed_dir / "half").touch()
-            eventually("six-point increase uploads promptly", lambda: api(f"/jobs/{timed}")["progress"] == 0.11, timeout=4)
-            (timed_dir / "finish").touch()
-            eventually("timed job completion", lambda: api(f"/jobs/{timed}")["status"] == "succeeded")
-            output_paths.add(api(f"/jobs/{timed}")["output_path"])
-            stop(timed_worker)
-            check(timed_worker.returncode == 0, "timed worker shutdown failed")
-            print("PASS 10-second periodic upload and strict >5-point early upload with 60-second heartbeats", flush=True)
 
             env["JOBD_QUEUE"] = "copy"
             # Copy the actual COMMAND table cell into Bash, and verify argv survives.
@@ -422,18 +376,14 @@ def main():
             check(Path(path).read_text() == "local output\n", "local output mismatch")
             check(len(jobs()) == 1, "local job was sent to controller")
 
-            # With no controller job available, local work uses the same progress/cancel/execution flow.
-            work = directory / "local-progress"
+            # With no controller job available, local work uses the same cancellation/execution flow.
+            work = directory / "local-cancellation"
             work.mkdir()
-            progress_id = call(*local_options, "uv", "run", fixture, "cancel", str(work)).stdout.strip()
-            eventually("local progress job starts", lambda: (work / "ready.json").exists())
-            eventually("local progress 25%", lambda: local_api(local_state, f"/jobs/{progress_id}")["progress"] == 0.25)
-            (work / "half").touch()
-            eventually("local progress 50%", lambda: local_api(local_state, f"/jobs/{progress_id}")["progress"] == 0.5)
-            progress_path = call(*local_options, "-o").stdout.strip()
-            output_paths.add(progress_path)
+            cancel_id = call(*local_options, "uv", "run", fixture, str(work)).stdout.strip()
+            eventually("local cancellation job starts", lambda: (work / "ready.json").exists())
+            output_paths.add(call(*local_options, "-o").stdout.strip())
             for action in ["-r", "-u"]:
-                call(*local_options, action, progress_id, success=False)
+                call(*local_options, action, cancel_id, success=False)
             local_order = directory / "local-order"
             pending = [call(*local_options, "sh", "-c", 'printf "%s\\n" "$1" >> "$2"',
                             "sh", label, str(local_order)).stdout.strip() for label in ["a", "b", "c"]]
@@ -441,22 +391,22 @@ def main():
             call(*local_options, "-U", pending[2], pending[1])
             call(*local_options, "-u")  # Last added is still c, not the reordered tail.
             call(*local_options, "-r")  # Remove c; remaining order is b then a.
-            call(*local_options, "-k")  # Last run is the local progress job.
+            call(*local_options, "-k")  # Last run is the local cancellation job.
             check("cancelling" in call(*local_options, "-l").stdout, "local cancellation not visible")
             def local_finished():
                 rows = {row.split()[0]: row.split()[1] for row in call(*local_options, "-l").stdout.splitlines()[1:]}
-                return rows.get(progress_id) == "failed" and all(rows.get(j) == "succeeded" for j in pending[:2])
+                return rows.get(cancel_id) == "failed" and all(rows.get(j) == "succeeded" for j in pending[:2])
             eventually("local cancellation and reordered execution", local_finished)
             check(local_order.read_text() == "b\na\n", "local reorder/default IDs did not affect execution")
             for job_id in pending[:2]:
                 output_paths.add(call(*local_options, "-o", job_id).stdout.strip())
-            check(local_api(local_state, f"/jobs/{progress_id}")["progress"] == 0.5, "cancel lost local progress")
-            check(len(jobs()) == 1, "local progress/result sent to controller")
+            check(local_api(local_state, f"/jobs/{cancel_id}")["error"] == "Job cancelled by user", "missing local cancellation reason")
+            check(len(jobs()) == 1, "local result sent to controller")
             call(*local_options, "-C")
             check(len(call(*local_options, "-l").stdout.splitlines()) == 1, "local clear left finished jobs")
             stop(local_worker)
             check(local_worker.returncode == 0, "local worker shutdown failed")
-            print("PASS persistent local submission, controller priority, immediate local execution, local progress/cancel/reorder/default IDs/output and key filtering", flush=True)
+            print("PASS persistent local submission, controller priority, immediate local execution, local cancel/reorder/default IDs/output and key filtering", flush=True)
             # No credentials: both binaries automatically select local-only mode.
             env.pop("JOBD_API_KEY")
             env.pop("JOBD_LOCAL_PERSIST")

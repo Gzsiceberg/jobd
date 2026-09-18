@@ -116,23 +116,21 @@ func TestLocalQueueActions(t *testing.T) {
 	if q.reorder(a.ID, "local-999") == nil || queueJobs(t, q)[1].ID != a.ID {
 		t.Fatal("invalid swap changed order")
 	}
-	q.Progress(context.Background(), b.ID, 0.5)
-	q.Progress(context.Background(), b.ID, 0.2)
 	var cancelled string
 	q.cancel = func(id string) { cancelled = id }
 	if err := q.requestCancel(b.ID); err != nil {
 		t.Fatal(err)
 	}
 	job, _ := q.get(b.ID)
-	if cancelled != b.ID || job.CancelRequested != 1 || job.Progress != 0.5 {
-		t.Fatalf("cancel/progress: %+v", job)
+	if cancelled != b.ID || job.CancelRequested != 1 {
+		t.Fatalf("cancel: %+v", job)
 	}
-	code, progress := 7, 0.75
-	if err := q.Finish(context.Background(), b.ID, Result{ExitCode: &code, Progress: &progress}); err != nil {
+	code := 7
+	if err := q.Finish(context.Background(), b.ID, Result{ExitCode: &code}); err != nil {
 		t.Fatal(err)
 	}
 	job, _ = q.get(b.ID)
-	if job.Status != "failed" || job.Progress != 0.75 {
+	if job.Status != "failed" || job.ExitCode == nil || *job.ExitCode != code {
 		t.Fatalf("finish: %+v", job)
 	}
 	q.clear()

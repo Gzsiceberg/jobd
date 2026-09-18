@@ -20,7 +20,6 @@ type job struct {
 	ExitCode        *int     `json:"exit_code"`
 	StartedAt       *string  `json:"started_at"`
 	FinishedAt      *string  `json:"finished_at"`
-	Progress        *float64 `json:"progress"`
 	CancelRequested int      `json:"cancel_requested"`
 }
 

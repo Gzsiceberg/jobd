@@ -29,17 +29,17 @@ describe('minimal queue', () => {
     expect(scheduler.job(next.id).status).toBe('queued');
   });
 
-  it('tracks progress and completion, enforcing ownership and terminal states', () => {
+  it('tracks completion, enforcing ownership and terminal states', () => {
     const { scheduler } = setup();
     const job = scheduler.submit(['true']);
     scheduler.claim('a');
-    expect(() => scheduler.progress(job.id, 'b', 0.5)).toThrow('not assigned');
-    scheduler.progress(job.id, 'a', 0.5);
+    expect(() => scheduler.finish(job.id, 'b', true, 0, null)).toThrow(
+      'not assigned',
+    );
     scheduler.finish(job.id, 'a', true, 0, null);
     scheduler.finish(job.id, 'a', true, 0, null);
     expect(scheduler.job(job.id)).toMatchObject({
       status: 'succeeded',
-      progress: 1,
       exit_code: 0,
     });
     expect(scheduler.worker('a').current_job_id).toBeNull();

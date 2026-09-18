@@ -82,13 +82,6 @@ func (c *ControllerClient) Claim(ctx context.Context) (*Job, error) {
 	return response.Job, nil
 }
 
-func (c *ControllerClient) Progress(ctx context.Context, jobID string, progress float64) error {
-	return c.post(ctx, "/jobs/"+url.PathEscape(jobID)+"/progress", struct {
-		WorkerID string  `json:"worker_id"`
-		Progress float64 `json:"progress"`
-	}{c.workerID, progress}, nil)
-}
-
 func (c *ControllerClient) Output(ctx context.Context, jobID, path string) error {
 	return c.post(ctx, "/jobs/"+url.PathEscape(jobID)+"/output", struct {
 		WorkerID   string `json:"worker_id"`
@@ -102,11 +95,10 @@ func (c *ControllerClient) Finish(ctx context.Context, jobID string, result Resu
 		endpoint = "complete"
 	}
 	return c.post(ctx, "/jobs/"+url.PathEscape(jobID)+"/"+endpoint, struct {
-		WorkerID string   `json:"worker_id"`
-		ExitCode *int     `json:"exit_code"`
-		Error    string   `json:"error,omitempty"`
-		Progress *float64 `json:"progress,omitempty"`
-	}{c.workerID, result.ExitCode, result.Error, result.Progress}, nil)
+		WorkerID string `json:"worker_id"`
+		ExitCode *int   `json:"exit_code"`
+		Error    string `json:"error,omitempty"`
+	}{c.workerID, result.ExitCode, result.Error}, nil)
 }
 
 func (c *ControllerClient) workerPath(action string) string {

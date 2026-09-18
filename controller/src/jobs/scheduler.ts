@@ -12,7 +12,6 @@ type JobRow = {
   started_at: string | null;
   finished_at: string | null;
   worker_id: string | null;
-  progress: number;
   exit_code: number | null;
   error: string | null;
   output_path: string | null;
@@ -21,7 +20,7 @@ type JobRow = {
 };
 
 const jobColumns =
-  'id, status, command, created_at, started_at, finished_at, worker_id, progress, exit_code, error, output_path, cancel_requested, (SELECT hostname FROM workers WHERE workers.worker_id = jobs.worker_id) AS hostname';
+  'id, status, command, created_at, started_at, finished_at, worker_id, exit_code, error, output_path, cancel_requested, (SELECT hostname FROM workers WHERE workers.worker_id = jobs.worker_id) AS hostname';
 
 /** Queue operations use the Durable Object's SQLite storage directly. */
 export class Scheduler {
@@ -35,7 +34,6 @@ export class Scheduler {
       started_at TEXT,
       finished_at TEXT,
       worker_id TEXT,
-      progress REAL NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 1),
       exit_code INTEGER,
       error TEXT,
       cancel_requested INTEGER NOT NULL DEFAULT 0,
@@ -272,24 +270,12 @@ export class Scheduler {
     return job;
   }
 
-  progress(id: string, workerId: string, progress: number): Job {
-    const job = this.ownedJob(id, workerId);
-    if (job.status !== 'running') throw new ApiError(409, 'Job is not running');
-    this.storage.sql.exec(
-      'UPDATE jobs SET progress = MAX(progress, ?) WHERE id = ?',
-      progress,
-      id,
-    );
-    return this.job(id);
-  }
-
   finish(
     id: string,
     workerId: string,
     succeeded: boolean,
     exitCode: number | null,
     error: string | null,
-    progress?: number,
   ): Job {
     return this.storage.transactionSync(() => {
       const job = this.ownedJob(id, workerId);
@@ -300,12 +286,11 @@ export class Scheduler {
       this.worker(workerId);
       this.storage.sql.exec(
         `UPDATE jobs SET status = ?, exit_code = ?, error = ?,
-        finished_at = ?, progress = ? WHERE id = ?`,
+        finished_at = ? WHERE id = ?`,
         status,
         exitCode,
         succeeded ? null : error,
         new Date().toISOString(),
-        succeeded ? 1 : Math.max(job.progress, progress ?? job.progress),
         id,
       );
       this.storage.sql.exec(

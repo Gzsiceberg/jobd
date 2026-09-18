@@ -16,7 +16,6 @@ type Result struct {
 	ExitCode   *int
 	Error      string
 	OutputPath string
-	Progress   *float64
 }
 
 // Execute runs argv directly and saves combined stdout/stderr in a retained /tmp log.

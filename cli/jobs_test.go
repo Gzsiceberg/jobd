@@ -119,11 +119,11 @@ func TestDefaultsAndOutput(t *testing.T) {
 	}
 }
 
-func TestListProgressAndCancellation(t *testing.T) {
+func TestListCancellation(t *testing.T) {
 	t.Setenv("JOBD_STATE_DIR", t.TempDir())
 	t.Setenv("JOBD_API_KEY", "test-key")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"jobs":[{"id":"job","status":"running","progress":0.5,"cancel_requested":1,"command":["sleep","60"]}]}`)
+		fmt.Fprint(w, `{"jobs":[{"id":"job","status":"running","cancel_requested":1,"command":["sleep","60"]}]}`)
 	}))
 	defer server.Close()
 	t.Setenv("JOBD_CONTROLLER", server.URL)
@@ -133,11 +133,11 @@ func TestListProgressAndCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(out.String(), "\n")
-	if strings.Contains(lines[0], "PROGRESS") || strings.Fields(lines[0])[3] != "HOST" {
+	if strings.Fields(lines[0])[3] != "HOST" {
 		t.Fatal(out.String())
 	}
 	fields := strings.Fields(lines[1])
-	if fields[1] != "cancelling" || strings.Contains(out.String(), "50.0%") {
+	if fields[1] != "cancelling" {
 		t.Fatal(out.String())
 	}
 }

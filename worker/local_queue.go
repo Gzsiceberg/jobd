@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,7 +27,7 @@ type localQueue struct {
 
 const localColumns = `'local-' || sequence, status, command, created_at,
  started_at, finished_at, worker_id, hostname, output_path, exit_code,
- error, progress, cancel_requested`
+ error, cancel_requested`
 
 func openLocalQueue(stateDir string, persist bool) (*localQueue, error) {
 	dir, err := filepath.Abs(filepath.Join(stateDir, "local"))
@@ -85,7 +84,6 @@ func openLocalQueue(stateDir string, persist bool) (*localQueue, error) {
   output_path TEXT NOT NULL DEFAULT '',
   exit_code INTEGER,
   error TEXT NOT NULL DEFAULT '',
-  progress REAL NOT NULL DEFAULT 0 CHECK(progress BETWEEN 0 AND 1),
   cancel_requested INTEGER NOT NULL DEFAULT 0,
   queue_position INTEGER NOT NULL
  );
@@ -117,7 +115,7 @@ func scanLocalJob(row jobScanner) (Job, error) {
 	var command string
 	var created int64
 	var started, finished sql.NullInt64
-	err := row.Scan(&job.ID, &job.Status, &command, &created, &started, &finished, &job.WorkerID, &job.Hostname, &job.OutputPath, &job.ExitCode, &job.Error, &job.Progress, &job.CancelRequested)
+	err := row.Scan(&job.ID, &job.Status, &command, &created, &started, &finished, &job.WorkerID, &job.Hostname, &job.OutputPath, &job.ExitCode, &job.Error, &job.CancelRequested)
 	if err != nil {
 		return job, err
 	}
@@ -229,25 +227,16 @@ func (q *localQueue) updateRunning(ctx context.Context, id, assignments string, 
 	return nil
 }
 
-// The same execution/progress/reporting interfaces as ControllerClient.
+// The same execution/reporting interfaces as ControllerClient.
 func (q *localQueue) Output(ctx context.Context, id, path string) error {
 	return q.updateRunning(ctx, id, `output_path=?`, path)
 }
-func (q *localQueue) Progress(ctx context.Context, id string, value float64) error {
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
-		return fmt.Errorf("invalid progress")
-	}
-	return q.updateRunning(ctx, id, `progress=MAX(progress,?)`, value)
-}
 func (q *localQueue) Finish(ctx context.Context, id string, result Result) error {
 	status := "failed"
-	progress := result.Progress
 	if result.ExitCode != nil && *result.ExitCode == 0 && result.Error == "" {
 		status = "succeeded"
-		one := 1.0
-		progress = &one
 	}
-	return q.updateRunning(ctx, id, `status=?,finished_at=?,exit_code=?,error=?,progress=MAX(progress,COALESCE(?,0))`, status, time.Now().UnixNano(), result.ExitCode, result.Error, progress)
+	return q.updateRunning(ctx, id, `status=?,finished_at=?,exit_code=?,error=?`, status, time.Now().UnixNano(), result.ExitCode, result.Error)
 }
 func (q *localQueue) recover() error {
 	_, err := q.db.Exec(`UPDATE jobs SET status='failed',finished_at=?,error='Worker restarted; previous outcome unknown' WHERE status='running'`, time.Now().UnixNano())
