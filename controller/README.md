@@ -12,6 +12,8 @@ Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names
 
 Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use separate daemons and state directories for more queues. There is no queue registry or cross-queue claiming.
 
+Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all` (under the queue prefix, requiring the master key). Both return `{ "retried": N }`. Retries preserve IDs, commands and creation timestamps, clear execution details and cancellation flags, and append jobs behind queued work. Bulk retries are atomic and affect only failed jobs; single-job retries reject other states with 409. Log files are not deleted. Retrying does not resume workers whose remote claims are paused; restart those workers separately.
+
 | Method | Path                       | Body / notes                                                        |
 | ------ | -------------------------- | ------------------------------------------------------------------- |
 | POST   | `/jobs`                    | `{"command":["echo","hello"]}`                                      |

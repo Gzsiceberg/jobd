@@ -26,7 +26,7 @@ type job struct {
 func runAction(options cliOptions, action string, args []string, out, diagnostic io.Writer) error {
 	address, queue, local, stateDir := options.address, options.queue, options.local, options.stateDir
 	switch action {
-	case "--", "-l", "-C", "-o", "-r", "-u", "-k", "-U":
+	case "--", "-l", "-C", "-o", "-r", "-u", "-k", "-U", "-retry":
 	default:
 		if strings.HasPrefix(action, "-") {
 			return fmt.Errorf("unknown action %s; use -h for help", action)
@@ -105,7 +105,7 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		if len(args) != 0 {
 			return fmt.Errorf("%s takes no arguments", action)
 		}
-	case "-o", "-r", "-u", "-k":
+	case "-o", "-r", "-u", "-k", "-retry":
 		if len(args) > 1 {
 			return fmt.Errorf("%s takes at most one job ID", action)
 		}
@@ -128,6 +128,20 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 			return err
 		}
 		_, err := fmt.Fprintln(out, result.ID)
+		return err
+	}
+	if action == "-retry" {
+		path := "/jobs/retry-all"
+		if len(args) == 1 {
+			path = "/jobs/" + url.PathEscape(args[0]) + "/retry"
+		}
+		var result struct {
+			Retried int64 `json:"retried"`
+		}
+		if err := c.request("POST", path, struct{}{}, &result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(out, "Requeued %d failed job(s).\n", result.Retried)
 		return err
 	}
 	if action == "-l" {

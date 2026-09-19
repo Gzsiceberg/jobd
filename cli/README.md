@@ -137,6 +137,16 @@ This atomically removes **queued and finished** records in the selected queue. R
 
 `jobd job clear` / `jobd -C` still removes only finished records without this prompt.
 
+## Retry failed jobs
+
+```sh
+jobd job retry 123          # Requeue one failed job
+jobd job retry --all        # Requeue all failed jobs in the selected queue
+jobd --local job retry --all
+```
+
+Retries keep the same IDs and commands, append jobs to the back of the queue, and clear previous execution details. Existing log files remain on disk. Only failed jobs are eligible; queued, running and successful jobs are unchanged. Remote retries require `JOBD_MASTER_KEY`. Retrying does not resume remote claims on a paused worker: use `jobd worker restart` on that worker.
+
 ## Per-queue environment secrets
 
 First configure the controller's [encryption key](../controller/README.md#queue-environment-secrets). Then:

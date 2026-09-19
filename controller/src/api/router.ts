@@ -94,6 +94,8 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
     return c.json({ ok: true });
   });
   app.post('/jobs/remove-all', (c) => c.json(scheduler.removeAll()));
+  app.post('/jobs/retry-all', (c) => c.json(scheduler.retry()));
+  app.post('/jobs/:id/retry', (c) => c.json(scheduler.retry(c.req.param('id'))));
   app.post('/jobs/swap', async (c) => {
     const body = z
       .object({ first: text, second: text })

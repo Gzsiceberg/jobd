@@ -43,5 +43,20 @@ func newJobCommand(options *cliOptions) *cobra.Command {
 		}
 		group.AddCommand(command)
 	}
+	var retryAll bool
+	retry := &cobra.Command{
+		Use: "retry [ID]", Short: "Requeue a failed job, or all failed jobs with --all",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if (retryAll && len(args) != 0) || (!retryAll && len(args) != 1) {
+				return fmt.Errorf("use job retry ID or job retry --all")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAction(*options, "-retry", args, cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	}
+	retry.Flags().BoolVar(&retryAll, "all", false, "Requeue all failed jobs")
+	group.AddCommand(retry)
 	return group
 }

@@ -339,6 +339,64 @@ func (q *localQueue) removeAll() (removeAllResult, error) {
 	return result, tx.Commit()
 }
 
+type retryResult struct {
+	Retried int64 `json:"retried"`
+}
+
+func (q *localQueue) retry(id string) (retryResult, error) {
+	var result retryResult
+	tx, err := q.db.Begin()
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+	query := `SELECT sequence FROM jobs WHERE status='failed'`
+	var args []any
+	if id != "" {
+		sequence, err := localSequence(id)
+		if err != nil {
+			return result, err
+		}
+		var status string
+		if err := tx.QueryRow(`SELECT status FROM jobs WHERE sequence=?`, sequence).Scan(&status); err != nil {
+			return result, err
+		}
+		if status != "failed" {
+			return result, fmt.Errorf("only failed jobs can be retried")
+		}
+		query += ` AND sequence=?`
+		args = append(args, sequence)
+	}
+	rows, err := tx.Query(query+` ORDER BY queue_position,sequence`, args...)
+	if err != nil {
+		return result, err
+	}
+	var sequences []int64
+	for rows.Next() {
+		var sequence int64
+		if err := rows.Scan(&sequence); err != nil {
+			rows.Close()
+			return result, err
+		}
+		sequences = append(sequences, sequence)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return result, err
+	}
+	for _, sequence := range sequences {
+		_, err := tx.Exec(`UPDATE jobs SET status='queued',started_at=NULL,finished_at=NULL,
+ worker_id='',hostname='',output_path='',exit_code=NULL,error='',cancel_requested=0,
+ queue_position=(SELECT COALESCE(MAX(queue_position),0)+1 FROM jobs) WHERE sequence=?`, sequence)
+		if err != nil {
+			return result, err
+		}
+	}
+	result.Retried = int64(len(sequences))
+	return result, tx.Commit()
+}
+
 func (q *localQueue) clear() error {
 	_, err := q.db.Exec(`DELETE FROM jobs WHERE status IN ('succeeded','failed')`)
 	return err

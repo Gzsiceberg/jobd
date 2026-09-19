@@ -175,6 +175,27 @@ export class Scheduler {
     });
   }
 
+  retry(id?: string): { retried: number } {
+    return this.storage.transactionSync(() => {
+      if (id !== undefined && this.job(id).status !== 'failed')
+        throw new ApiError(409, 'Only failed jobs can be retried');
+      const jobs = this.storage.sql.exec<{ id: string }>(
+        `SELECT id FROM jobs WHERE status = 'failed'${id === undefined ? '' : ' AND id = ?'} ORDER BY queue_position, sequence`,
+        ...(id === undefined ? [] : [id]),
+      ).toArray();
+      for (const job of jobs) {
+        this.storage.sql.exec(
+          `UPDATE jobs SET status = 'queued', started_at = NULL, finished_at = NULL,
+           worker_id = NULL, output_path = NULL, exit_code = NULL,
+           error = NULL, cancel_requested = 0,
+           queue_position = (SELECT COALESCE(MAX(queue_position), 0) + 1 FROM jobs)
+           WHERE id = ?`, job.id,
+        );
+      }
+      return { retried: jobs.length };
+    });
+  }
+
   reorder(id: string, other?: string): void {
     this.storage.transactionSync(() => {
       for (const target of other === undefined ? [id] : [id, other]) {

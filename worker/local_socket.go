@@ -130,6 +130,8 @@ func (q *localQueue) routes() *http.ServeMux {
 	register("POST /jobs/{id}/urgent", func(r *http.Request) (any, error) { return nil, q.reorder(r.PathValue("id"), "") })
 	register("POST /jobs/clear", func(r *http.Request) (any, error) { return nil, q.clear() })
 	register("POST /jobs/remove-all", func(r *http.Request) (any, error) { return q.removeAll() })
+	register("POST /jobs/retry-all", func(r *http.Request) (any, error) { return q.retry("") })
+	register("POST /jobs/{id}/retry", func(r *http.Request) (any, error) { return q.retry(r.PathValue("id")) })
 	register("POST /jobs/swap", func(r *http.Request) (any, error) {
 		var body struct {
 			First  string `json:"first"`
