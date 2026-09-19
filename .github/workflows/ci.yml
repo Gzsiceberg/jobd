@@ -43,6 +43,6 @@ jobs:
       - name: Test local end-to-end flow
         env:
           WRANGLER_LOG: debug
-        run: uv run tooling/e2e.py
+        run: uv run --with 'pytest>=8,<9' pytest tooling/e2e
       - name: Test public installer and uninstaller
         run: uv run tooling/test-install.py

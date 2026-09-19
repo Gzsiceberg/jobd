@@ -77,17 +77,34 @@ Shared config: [ESLint](../tooling/eslint/base.mjs) and [TypeScript](../tsconfig
 ## End-to-end test
 
 ```sh
-uv run tooling/e2e.py
+uv run --with 'pytest>=8,<9' pytest tooling/e2e
+uv run --with 'pytest>=8,<9' pytest tooling/e2e -k cancellation   # Run one scenario group
+uv run --with 'pytest>=8,<9' pytest tooling/e2e -k retry -v       # Show individual retry cases
+uv run --with 'pytest>=8,<9' pytest tooling/e2e --collect-only -q # List without starting services
 ```
 
-Requires the prerequisites and installed pnpm dependencies. Builds temporary binaries. Runs real workers and a local HTTPS Wrangler controller with isolated storage, a temporary trusted certificate, and generated queue-scoped worker tokens.
+Requires the prerequisites, Python 3.12+ and installed pnpm dependencies. Run from the repository root. uv supplies pytest in an isolated environment; no wrapper script is needed. Standard pytest options work directly, including test file/node selection and `--junitxml=results.xml`.
+
+The session fixture builds temporary binaries and starts one real local HTTPS Wrangler controller with isolated storage, a temporary trusted certificate, and generated queue-scoped worker tokens. Each test gets a unique queue, environment copy and short temporary state directory; workers are never shared between tests. Tests run sequentially and can be selected independently.
+
+The suite lives in `tooling/e2e/`:
+
+- `conftest.py`: session services, per-test fixtures and failure diagnostics.
+- `harness.py`: real CLI/API helpers, polling, process ownership and cleanup.
+- `test_auth.py`, `test_queue.py`: authentication and queue/CLI behavior.
+- `test_execution.py`, `test_cancellation.py`: execution, failure pause and cancellation.
+- `test_local.py`: local priority, persistence, cancellation and auto-start.
+- `test_retry.py`: single/multiple/all remote retries and local retries.
+
+Add a standalone `test_*(harness)` function rather than extending a shared scenario. Use explicit gates or readiness polling for asynchronous work; bounded observation delays are reserved for asserting that something stays unchanged. The fixture stops owned foreground and detached workers even when an assertion fails. Failed tests include queue snapshots and process logs in the pytest report.
 
 Covers:
 
 - Authentication, CLI actions, default IDs, ordering, isolation and pagination.
 - Output files and invalid operations.
 - Job execution, output capture and final reports.
-- Process-group cancellation, socket cleanup and worker reuse.
+- Process-group cancellation, socket cleanup, remote-claim pausing and restart recovery.
+- Retrying failed jobs with the same IDs, retaining old logs and executing again.
 - Local/remote parity, controller priority and immediate local execution after an empty controller claim.
 - Memory and persistent queues across restart.
 - Detached auto-start, restart and stop.
