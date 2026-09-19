@@ -41,7 +41,7 @@ export SSL_CERT_FILE="$HOME/.local/share/jobd-dev/cert.pem"
 export JOBD_CONTROLLER=https://127.0.0.1:8787
 (cd cli && go build -o jobd .)
 (cd worker && go build -o jobd-worker .)
-export JOBD_WORKER_TOKEN="$(./cli/jobd auth create-worker-key --duration 24h)"
+export JOBD_WORKER_TOKEN="$(./cli/jobd auth create-worker-token --duration 24h)"
 env -u JOBD_MASTER_KEY ./worker/jobd-worker --controller "$JOBD_CONTROLLER" --queue default
 ```
 

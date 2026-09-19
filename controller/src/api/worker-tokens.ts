@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const maxWorkerKeySeconds = 30 * 24 * 60 * 60;
+export const maxWorkerTokenSeconds = 30 * 24 * 60 * 60;
 const encoder = new TextEncoder();
 const prefix = 'jw2.';
 // Binary layout: uint32 issued-at, uint32 expiry (big endian), 16-byte UUID,
@@ -47,6 +47,7 @@ async function signingKey(secret: string): Promise<CryptoKey> {
     {
       name: 'HKDF',
       hash: 'SHA-256',
+      // Keep this protocol constant unchanged: renaming it invalidates existing tokens.
       salt: encoder.encode('jobd.worker-key.v2'),
       info: encoder.encode('worker-token-signing'),
     },
@@ -73,7 +74,7 @@ export async function isAdminKey(
   return difference === 0;
 }
 
-export async function issueWorkerKey(
+export async function issueWorkerToken(
   secret: string,
   queue: string,
   seconds: number,
@@ -82,7 +83,7 @@ export async function issueWorkerKey(
   if (
     !Number.isInteger(seconds) ||
     seconds < 1 ||
-    seconds > maxWorkerKeySeconds
+    seconds > maxWorkerTokenSeconds
   )
     throw new Error('Invalid duration');
   const claims = claimsSchema.parse({
@@ -112,13 +113,13 @@ export async function issueWorkerKey(
   token.set(payload);
   token.set(new Uint8Array(signature), payload.length);
   return {
-    api_key: prefix + encode(token),
+    token: prefix + encode(token),
     expires_at: new Date(claims.exp * 1000).toISOString(),
     queue,
   };
 }
 
-export async function verifyWorkerKey(
+export async function verifyWorkerToken(
   secret: string,
   token: string,
   now = Math.floor(Date.now() / 1000),
@@ -159,7 +160,7 @@ export async function verifyWorkerKey(
       claims.iat > now ||
       claims.exp <= now ||
       claims.exp <= claims.iat ||
-      claims.exp - claims.iat > maxWorkerKeySeconds
+      claims.exp - claims.iat > maxWorkerTokenSeconds
     )
       return null;
     return claims;
@@ -172,7 +173,7 @@ export async function verifyWorkerKey(
 export function workerRouteAllowed(method: string, path: string): boolean {
   if (method === 'GET')
     return (
-      path === '/auth/worker-key/verify' ||
+      path === '/auth/worker-token/verify' ||
       /^\/jobs(?:\/(?:latest|[0-9]+))?$/.test(path)
     );
   if (method !== 'POST') return false;

@@ -124,7 +124,7 @@ def main():
         def start(name, command, cwd):
             child_env = env.copy()
             if command[0] == str(worker):
-                env["JOBD_WORKER_TOKEN"] = call("auth", "create-worker-key", "--duration", "1h").stdout.strip()
+                env["JOBD_WORKER_TOKEN"] = call("auth", "create-worker-token", "--duration", "1h").stdout.strip()
                 child_env["JOBD_WORKER_TOKEN"] = env["JOBD_WORKER_TOKEN"]
                 child_env.pop("JOBD_MASTER_KEY", None)
             log = directory / f"{name}.log"
@@ -169,11 +169,11 @@ def main():
                     raise AssertionError("Controller accepted invalid credentials")
                 except urllib.error.HTTPError as error:
                     check(error.code == 401, "expected unauthorized response")
-            env["JOBD_WORKER_TOKEN"] = call("auth", "create-worker-key", "--duration", "1h").stdout.strip()
+            env["JOBD_WORKER_TOKEN"] = call("auth", "create-worker-token", "--duration", "1h").stdout.strip()
             worker_only = {"JOBD_MASTER_KEY": ""}
             call("job", "list", extra_env=worker_only)
             for args in [("echo", "forbidden"), ("-C",), ("-r", "1"), ("env", "list"),
-                         ("auth", "create-worker-key", "--duration", "1h")]:
+                         ("auth", "create-worker-token", "--duration", "1h")]:
                 call(*args, success=False, extra_env=worker_only)
             call("job", "list", success=False, extra_env=worker_only | {"JOBD_QUEUE": "other"})
             print("PASS API authentication, CLI key generation, worker permissions and queue scope", flush=True)

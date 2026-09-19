@@ -42,7 +42,7 @@ Job lifecycle: `queued → running → succeeded | failed`.
 | [Development](docs/development.md) | Local setup, checks and end-to-end tests |
 | [Releases](docs/releases.md) | Packaging and publishing GitHub releases |
 
-**Security:** `JOBD_MASTER_KEY` is the controller/admin credential and encryption key; never configure it on workers. Admins generate expiring, queue-scoped worker tokens with `jobd auth create-worker-key --duration 24h`. Supply those tokens as client-side `JOBD_WORKER_TOKEN` for job reads and worker execution/reporting, not submission, deletion or environment management. There is no execution sandbox. Use HTTPS, keep keys private and run workers as unprivileged users. See [deployment and limits](controller/README.md#deployment-and-limits).
+**Security:** `JOBD_MASTER_KEY` is the controller/admin credential and encryption key; never configure it on workers. Admins generate expiring, queue-scoped worker tokens with `jobd auth create-worker-token --duration 24h`. Supply those tokens as client-side `JOBD_WORKER_TOKEN` for job reads and worker execution/reporting, not submission, deletion or environment management. There is no execution sandbox. Use HTTPS, keep keys private and run workers as unprivileged users. See [deployment and limits](controller/README.md#deployment-and-limits).
 
 ## License
 

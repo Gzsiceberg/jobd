@@ -3,11 +3,11 @@ import { z } from 'zod';
 import { drainBody } from './drain-body';
 import {
   isAdminKey,
-  issueWorkerKey,
-  maxWorkerKeySeconds,
-  verifyWorkerKey,
+  issueWorkerToken,
+  maxWorkerTokenSeconds,
+  verifyWorkerToken,
   workerRouteAllowed,
-} from './worker-keys';
+} from './worker-tokens';
 
 const queueName = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/);
 
@@ -18,7 +18,7 @@ export function createQueueApi(
 ) {
   const app = new Hono<{
     Variables: {
-      workerClaims: NonNullable<Awaited<ReturnType<typeof verifyWorkerKey>>>;
+      workerClaims: NonNullable<Awaited<ReturnType<typeof verifyWorkerToken>>>;
     };
   }>();
   app.use('*', drainBody);
@@ -38,7 +38,7 @@ export function createQueueApi(
       await next();
       return;
     }
-    const claims = await verifyWorkerKey(masterKey, token);
+    const claims = await verifyWorkerToken(masterKey, token);
     if (!claims) {
       c.header('WWW-Authenticate', 'Bearer');
       return c.json({ error: 'Unauthorized' }, 401);
@@ -56,9 +56,9 @@ export function createQueueApi(
     c.set('workerClaims', claims);
     await next();
   });
-  app.get('/queues/:name/auth/worker-key/verify', (c) => {
+  app.get('/queues/:name/auth/worker-token/verify', (c) => {
     if (new URL(c.req.url).protocol !== 'https:') {
-      return c.json({ error: 'Worker key verification requires HTTPS' }, 400);
+      return c.json({ error: 'Worker token verification requires HTTPS' }, 400);
     }
     const claims = c.get('workerClaims');
     if (!claims) {
@@ -70,10 +70,10 @@ export function createQueueApi(
       expires_at: new Date(claims.exp * 1000).toISOString(),
     });
   });
-  app.post('/queues/:name/auth/worker-key', async (c) => {
-    // Only administrators reach this endpoint; worker keys are denied above.
+  app.post('/queues/:name/auth/worker-token', async (c) => {
+    // Only administrators reach this endpoint; worker tokens are denied above.
     if (new URL(c.req.url).protocol !== 'https:') {
-      return c.json({ error: 'Worker key generation requires HTTPS' }, 400);
+      return c.json({ error: 'Worker token generation requires HTTPS' }, 400);
     }
     const name = queueName.safeParse(c.req.param('name'));
     if (!name.success) return c.json({ error: 'Invalid queue name' }, 400);
@@ -85,7 +85,7 @@ export function createQueueApi(
     }
     const duration = z
       .object({
-        duration_seconds: z.number().int().min(1).max(maxWorkerKeySeconds),
+        duration_seconds: z.number().int().min(1).max(maxWorkerTokenSeconds),
       })
       .strict()
       .safeParse(body);
@@ -95,7 +95,7 @@ export function createQueueApi(
         400,
       );
     return c.json(
-      await issueWorkerKey(
+      await issueWorkerToken(
         masterKey!,
         name.data,
         duration.data.duration_seconds,

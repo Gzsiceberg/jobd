@@ -15,7 +15,7 @@ Examples:
   jobd -- env
   jobd env set API_KEY=XXX KEY=SSS
   jobd worker restart
-  jobd auth create-worker-key --duration 24h
+  jobd auth create-worker-token --duration 24h
 
 Shortcuts:
   -l               List remote and local jobs (default; --local lists local only)
@@ -30,7 +30,7 @@ Shortcuts:
 Use -- to force submission of a reserved name (env, worker, job, auth, help, completion)
 or a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
-Authentication: JOBD_MASTER_KEY (admin) or JOBD_WORKER_TOKEN (expiring worker key).
+Authentication: JOBD_MASTER_KEY (admin) or JOBD_WORKER_TOKEN (expiring worker token).
 Without either, local mode is automatic. Workers only use JOBD_WORKER_TOKEN.
 --local uses the same actions against the local worker's single queue.
 Local jobs run when the controller has no job available, or directly when no key is set.

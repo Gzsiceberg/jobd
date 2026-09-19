@@ -33,7 +33,7 @@ For a standalone Linux binary, set `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`. Use 
 
 Flags override environment values. Interval flags use seconds.
 
-Set `JOBD_WORKER_TOKEN` to a generated worker token for this queue (`jobd auth create-worker-key --duration 24h` in a trusted admin shell with `JOBD_MASTER_KEY`). Never configure the admin key on workers. Tokens expire; replace them before expiry and restart while idle. No automatic renewal or individual revocation is implemented. Store persistent tokens in a private `0600` file outside the repository, loaded by your service manager. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
+Set `JOBD_WORKER_TOKEN` to a generated worker token for this queue (`jobd auth create-worker-token --duration 24h` in a trusted admin shell with `JOBD_MASTER_KEY`). Never configure the admin key on workers. Tokens expire; replace them before expiry and restart while idle. No automatic renewal or individual revocation is implemented. Store persistent tokens in a private `0600` file outside the repository, loaded by your service manager. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
 
 The state directory holds the worker ID. Use separate directories for separate daemons. Never copy an identity to another VM.
 

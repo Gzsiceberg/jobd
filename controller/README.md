@@ -8,7 +8,7 @@ TypeScript, Hono and Zod. Each queue has a SQLite-backed Cloudflare Durable Obje
 
 Prefix every route with `/queues/:name`. Bodies are JSON. Unprefixed routes are not served.
 
-Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names select separate storage. Worker keys are scoped to one queue; the admin key authorizes every queue.
+Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names select separate storage. Worker tokens are scoped to one queue; the admin key authorizes every queue.
 
 Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use separate daemons and state directories for more queues. There is no queue registry or cross-queue claiming.
 
@@ -72,7 +72,7 @@ Values use AES-256-GCM with a fresh 96-bit nonce for each write. Authenticated d
 
 Claims include a separate `environment` map when a job is assigned; it is not part of stored job records. Queues with secrets require HTTPS claims. Decryption failures prevent assignment, rather than running without the required environment. Responses use `Cache-Control: no-store`. Updates apply at the next successful claim (including retries), not to already-running processes. Local jobs do not receive queue secrets.
 
-**Security boundary:** `JOBD_MASTER_KEY` grants access to all queues. Worker keys can claim jobs and receive decrypted secrets in their authorized queue, despite being unable to manage environment settings. Anyone able to submit jobs can retrieve their secrets by executing code. Controller operators, Cloudflare, and the executing worker must be trusted. Values exist in controller/worker memory and job process environments; application output is **not redacted**. Jobs can write secrets to output files, and host administrators or sufficiently privileged processes can read them. Encryption at rest does not protect a compromised controller or worker. Deletion does not erase historical backups or revoke an API key at its provider.
+**Security boundary:** `JOBD_MASTER_KEY` grants access to all queues. Worker tokens can claim jobs and receive decrypted secrets in their authorized queue, despite being unable to manage environment settings. Anyone able to submit jobs can retrieve their secrets by executing code. Controller operators, Cloudflare, and the executing worker must be trusted. Values exist in controller/worker memory and job process environments; application output is **not redacted**. Jobs can write secrets to output files, and host administrators or sufficiently privileged processes can read them. Encryption at rest does not protect a compromised controller or worker. Deletion does not erase historical backups or revoke an API key at its provider.
 
 ## Deployment and limits
 
@@ -90,11 +90,13 @@ Use `JOBD_MASTER_KEY` only in the controller and trusted admin CLI environments,
 
 Every route requires a bearer credential. `JOBD_MASTER_KEY` authorizes all operations. Generated worker tokens authorize only the routes below in their named queue. Invalid, expired or missing credentials return 401; forbidden operations/queues return 403. An unset controller `JOBD_MASTER_KEY` returns 503.
 
-### Worker keys
+### Worker tokens
+
+Naming migration: use `jobd auth create-worker-token`, `/auth/worker-token` and `/auth/worker-token/verify`. The creation response now uses `token`, not `api_key`. Old command and route names are not supported; update CLI and controller together. `JOBD_WORKER_TOKEN` and existing unexpired tokens are unchanged.
 
 ```sh
 # In a trusted admin shell with JOBD_MASTER_KEY and JOBD_CONTROLLER set:
-JOBD_QUEUE=batch jobd auth create-worker-key --duration 24h
+JOBD_QUEUE=batch jobd auth create-worker-token --duration 24h
 ```
 
 Workers can check their token without accessing queue storage:
@@ -102,16 +104,16 @@ Workers can check their token without accessing queue storage:
 ```sh
 curl --fail-with-body \
   -H "Authorization: Bearer $JOBD_WORKER_TOKEN" \
-  "$JOBD_CONTROLLER/queues/$JOBD_QUEUE/auth/worker-key/verify"
+  "$JOBD_CONTROLLER/queues/$JOBD_QUEUE/auth/worker-token/verify"
 ```
 
-`GET /queues/:name/auth/worker-key/verify` requires HTTPS and the worker token as Bearer authorization (not the master key). Returns `{"valid":true,"queue":"batch","expires_at":"..."}` (200). Missing, invalid or expired tokens return 401; a wrong queue or admin key returns 403. An unconfigured controller returns 503. Responses are not cacheable and never include the token. This checks authentication only, not worker connectivity or registration.
+`GET /queues/:name/auth/worker-token/verify` requires HTTPS and the worker token as Bearer authorization (not the master key). Returns `{"valid":true,"queue":"batch","expires_at":"..."}` (200). Missing, invalid or expired tokens return 401; a wrong queue or admin key returns 403. An unconfigured controller returns 503. Responses are not cacheable and never include the token. This checks authentication only, not worker connectivity or registration.
 
-`POST /queues/:name/auth/worker-key` accepts `{"duration_seconds":86400}` and returns `{"api_key":"...","expires_at":"...","queue":"batch"}` (201). Requires admin authentication and HTTPS, including localhost. Durations must be whole seconds from 1 through 2592000 (30 days). Responses are not cacheable.
+`POST /queues/:name/auth/worker-token` accepts `{"duration_seconds":86400}` and returns `{"token":"...","expires_at":"...","queue":"batch"}` (201). Requires admin authentication and HTTPS, including localhost. Durations must be whole seconds from 1 through 2592000 (30 days). Responses are not cacheable.
 
 Worker tokens allow job list/detail/latest and registration, heartbeat, claim, output reporting, completion and failure. They cannot submit, delete, clear, cancel or reorder jobs, access `/env`, or issue keys. This is a worker role, not strictly read-only: claims/reporting mutate state, and claims deliver queue secrets. Tokens are queue-scoped, not tied to an individual worker identity; holders are trusted within that queue.
 
-Worker keys use only the compact `jw2.` format: 80–163 characters depending on queue-name length (86 for `batch`). A base64url binary payload contains issue/expiry times, a random UUID and the queue, followed by a full 32-byte HMAC-SHA-256 signature; the format implies the version and worker role. Signatures use an HKDF-derived, purpose-separated signing key from `JOBD_MASTER_KEY`. Legacy `jobd_worker_v1` tokens are no longer accepted: generate replacement keys and restart workers when upgrading. No worker credentials are stored in SQLite. No individual revocation or automatic renewal is implemented; all requests, including heartbeat/completion, fail after expiry. Replace credentials before expiry and restart workers while idle. Changing `JOBD_MASTER_KEY` invalidates all tokens **and makes existing encrypted secrets unreadable**; do not rotate it just to revoke a worker.
+Worker tokens use only the compact `jw2.` format: 80–163 characters depending on queue-name length (86 for `batch`). A base64url binary payload contains issue/expiry times, a random UUID and the queue, followed by a full 32-byte HMAC-SHA-256 signature; the format implies the version and worker role. Signatures use an HKDF-derived, purpose-separated signing key from `JOBD_MASTER_KEY`. Legacy `jobd_worker_v1` tokens are no longer accepted: generate replacement tokens and restart workers when upgrading. No worker credentials are stored in SQLite. No individual revocation or automatic renewal is implemented; all requests, including heartbeat/completion, fail after expiry. Replace credentials before expiry and restart workers while idle. Changing `JOBD_MASTER_KEY` invalidates all tokens **and makes existing encrypted secrets unreadable**; do not rotate it just to revoke a worker.
 
 Supply the generated token as client-side `JOBD_WORKER_TOKEN`. To persist it, use a file outside the repository with mode `0600`, loaded into the worker environment by your service manager. The CLI prints the token to stdout and expiry to stderr; it never saves a key file automatically. Do not log tokens.
 
