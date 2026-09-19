@@ -193,7 +193,7 @@ Numeric IDs are remote jobs. `local-N` IDs are local fallback jobs.
 - `ELAPSED`: whole seconds from assignment to now or completion. Includes launch/reporting delays. Queued jobs show `-`. Rerun to refresh.
 - `COMMAND`: Bash/Zsh quoting, capped at 60 characters with `...`. Truncation affects display only. Only untruncated commands can be copied for execution.
 
-Match workers by hostname and `~/.local/state/jobd-worker/worker-id`. Remote rows show controller assignments, not live process checks. Disconnected workers may still look running. Idle workers have no running row.
+Match workers by hostname and `~/.local/state/jobd-worker/worker-id`. Remote rows show controller assignments, not live process checks. Listing, clearing, or removing jobs first fails running/cancelling jobs whose worker has not refreshed its heartbeat for two minutes, with `Worker disconnected; outcome unknown`. It releases assignments without retrying or stopping remote processes. `jobd -C` therefore removes stale job records directly, without a preceding list; output files remain untouched. Until that threshold, disconnected workers may still look running. Idle workers have no running row.
 
 Lists use pages of 100, not a snapshot. Concurrent changes can affect pagination.
 

@@ -31,10 +31,16 @@ Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use
 | POST   | `/jobs/:id/fail`           | `{"worker_id":"...","exit_code":1,"error":"failed"}` |
 
 - Claim returns `{"job":null}` or `{"job":{...}}`. Retrying returns the existing assignment.
-- Terminal reports are retry-safe. Pre-launch failures may use `exit_code: null`.
+- Terminal reports are retry-safe, except reports for jobs expired by stale-worker cleanup are rejected with 409. Pre-launch failures may use `exit_code: null`.
 - Heartbeats return `cancel_job_id`, or `null`. Jobs expose `cancel_requested` as 0 or 1. A request does not mean the process stopped.
-- Worker status comes from assignments, not heartbeat payloads.
-- `POST /jobs/remove-all` with `{}` atomically deletes queued and finished records and returns `{"removed":N,"kept_running":N}`. Running jobs, worker assignments, queue secrets, and job ID sequences are preserved. Output files are never deleted. The CLI requires typed confirmation before calling this authenticated endpoint; direct API callers are responsible for their own confirmation. Deletion uses the jobs present at execution time, not a snapshot taken at the prompt.
+- Worker status comes from assignments, not heartbeat payloads. Workers whose last heartbeat is at least two minutes old are reported as `offline`.
+- `POST /jobs/remove-all` with `{}` atomically deletes queued and finished records and returns `{"removed":N,"kept_running":N}`. Healthy running jobs and their assignments, queue secrets, and job ID sequences are preserved; stale assignments are expired first. Output files are never deleted. The CLI requires typed confirmation before calling this authenticated endpoint; direct API callers are responsible for their own confirmation. Deletion uses the jobs present at execution time, not a snapshot taken at the prompt.
+
+### Disconnected workers
+
+Job listing, clearing finished jobs, removing a job, and removing all jobs run stale-worker cleanup before their operation. This lets `jobd -C` clear stale jobs without a preceding list. If a worker's last heartbeat is at least two minutes old, its running/cancelling jobs become `failed` with `Worker disconnected; outcome unknown` and a null exit code. Cleanup clears cancellation flags and worker assignments, preserving job records and output paths. It affects all stale jobs in the queue, regardless of pagination. There is no alarm or background cleanup; without one of these requests, jobs remain unchanged. Registration, heartbeats and claims refresh worker liveness; reconnecting before cleanup preserves the assignment.
+
+Expired jobs are never automatically retried. Late result/output reports are rejected and cannot change a subsequent assignment. A disconnected process may still run: timeout cleanup does not stop it or confirm its outcome. A worker whose result is rejected exits; restart it to resume accepting work. Keep heartbeat intervals well below two minutes (default: 15 seconds).
 
 See [cancellation](../worker/README.md#remote-cancellation).
 
@@ -141,7 +147,7 @@ The default endpoint is `https://jobd-controller.aflashsheng.workers.dev`; `work
 
 This is not a production scheduler:
 
-- No leases, stale-worker recovery, automatic job retries or advanced scheduling.
+- No execution leases, background stale-worker cleanup, automatic job retries or advanced scheduling. Stale assignments are expired only when jobs are listed, cleared or removed.
 - Network errors retry; failed jobs are not requeued.
 - Restart fails the worker's previous assignment without replay.
 - Lost VMs or shutdown reports can leave jobs running.

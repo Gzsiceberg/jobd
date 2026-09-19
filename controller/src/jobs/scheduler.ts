@@ -19,6 +19,9 @@ type JobRow = {
   cancel_requested: number;
 };
 
+export const workerTimeoutMs = 2 * 60 * 1000;
+const disconnectedError = 'Worker disconnected; outcome unknown';
+
 const jobColumns =
   'id, status, command, created_at, started_at, finished_at, worker_id, exit_code, error, output_path, cancel_requested, (SELECT hostname FROM workers WHERE workers.worker_id = jobs.worker_id) AS hostname';
 
@@ -54,6 +57,26 @@ export class Scheduler {
     )`);
   }
 
+  /** Never replay work: a disconnected process may still be executing it. */
+  private expireWorkers(now = Date.now()): void {
+    const cutoff = new Date(now - workerTimeoutMs).toISOString();
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        `UPDATE jobs SET status = 'failed', error = ?, exit_code = NULL,
+        finished_at = ?, cancel_requested = 0
+        WHERE status = 'running' AND worker_id IN
+          (SELECT worker_id FROM workers WHERE last_heartbeat <= ?)`,
+        disconnectedError,
+        new Date(now).toISOString(),
+        cutoff,
+      );
+      this.storage.sql.exec(
+        "UPDATE workers SET status = 'idle', current_job_id = NULL WHERE last_heartbeat <= ? AND (status != 'idle' OR current_job_id IS NOT NULL)",
+        cutoff,
+      );
+    });
+  }
+
   job(id: string): Job {
     const row = this.storage.sql
       .exec<JobRow>(`SELECT ${jobColumns} FROM jobs WHERE id = ?`, id)
@@ -67,7 +90,13 @@ export class Scheduler {
       .exec<WorkerRow>('SELECT * FROM workers WHERE worker_id = ?', id)
       .toArray()[0];
     if (!worker) throw new ApiError(404, 'Worker not found');
-    return worker;
+    return {
+      ...worker,
+      status:
+        Date.parse(worker.last_heartbeat) + workerTimeoutMs <= Date.now()
+          ? 'offline'
+          : worker.status,
+    };
   }
 
   submit(command: string[]): Job {
@@ -91,6 +120,7 @@ export class Scheduler {
   }
 
   list(limit: number, offset: number): Job[] {
+    this.expireWorkers();
     return this.storage.sql
       .exec<JobRow>(
         `SELECT ${jobColumns} FROM jobs ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, queue_position, sequence LIMIT ? OFFSET ?`,
@@ -114,12 +144,14 @@ export class Scheduler {
   }
 
   clear(): void {
+    this.expireWorkers();
     this.storage.sql.exec(
       "DELETE FROM jobs WHERE status IN ('succeeded', 'failed')",
     );
   }
 
   removeAll(): { removed: number; kept_running: number } {
+    this.expireWorkers();
     return this.storage.transactionSync(() => {
       this.storage.sql.exec("DELETE FROM jobs WHERE status != 'running'");
       const removed = this.storage.sql
@@ -135,6 +167,7 @@ export class Scheduler {
   }
 
   remove(id: string): void {
+    this.expireWorkers();
     this.storage.transactionSync(() => {
       if (this.job(id).status === 'running')
         throw new ApiError(409, 'Cannot remove a running job');
@@ -279,6 +312,8 @@ export class Scheduler {
   ): Job {
     return this.storage.transactionSync(() => {
       const job = this.ownedJob(id, workerId);
+      if (job.status === 'failed' && job.error === disconnectedError)
+        throw new ApiError(409, 'Worker disconnected; job outcome is unknown');
       const status = succeeded ? 'succeeded' : 'failed';
       if (job.status === status) return job;
       if (job.status !== 'running')

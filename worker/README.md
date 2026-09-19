@@ -113,7 +113,9 @@ The request is durable and safe to repeat while pending. **Confirmation means re
 
 Offline or old workers leave cancellation pending. Upgrade both controller and workers before relying on it.
 
-The CLI shows `cancelling`; the API keeps `running` with `cancel_requested: 1`. The assignment stays held until reporting finishes. Confirmed cancellation becomes `failed` with `Job cancelled by user`. Logs remain. If execution finishes first, its real outcome wins. Restart reports an unknown prior outcome.
+The CLI shows `cancelling`; the API keeps `running` with `cancel_requested: 1`. The assignment stays held until reporting finishes or stale-worker timeout cleanup expires it. Confirmed cancellation becomes `failed` with `Job cancelled by user`. Logs remain. If execution finishes first, its real outcome wins. Restart reports an unknown prior outcome if the assignment is still held.
+
+When jobs are listed, cleared or removed, the controller fails running/cancelling jobs whose worker has not refreshed its heartbeat for two minutes with `Worker disconnected; outcome unknown`. It releases the assignment without retrying, preserves output paths, and rejects late reports. Cleanup does not stop the disconnected process. Without those requests there is no timeout cleanup; a reconnect before cleanup preserves the assignment. A rejected final report causes the worker to exit; restart it to accept new work. Keep the heartbeat interval below two minutes.
 
 ## Source layout
 
