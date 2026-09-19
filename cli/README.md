@@ -34,7 +34,7 @@ Examples below use the installed `jobd`. For source builds, use `./cli/jobd`.
 
 - `JOBD_CONTROLLER`: defaults to `https://jobd-controller.aflashsheng.workers.dev`.
 - `JOBD_QUEUE`: defaults to `default`.
-- `JOBD_MASTER_KEY`: admin credential for all controller operations, including env and worker-token generation. Takes precedence when both credentials are set.
+- `JOBD_MASTER_KEY`: admin credential for all controller operations, including env and worker-token generation. Takes precedence when both credentials are set, except for `auth verify-worker-token`.
 - `JOBD_WORKER_TOKEN`: generated, expiring worker token for job reads and worker operations in its authorized queue. Cannot submit/manage jobs or env. No key file is written.
 
 Set the endpoint and queue only through `JOBD_CONTROLLER` and `JOBD_QUEUE`; there are no `--controller` or `--queue` flags. For example, `JOBD_QUEUE=batch jobd job list`. For direct submission and short actions, put `--local` **before** the action or executable; everything after the executable is passed through unchanged. Use HTTPS outside localhost.
@@ -52,6 +52,14 @@ export JOBD_WORKER_TOKEN="$(JOBD_QUEUE=batch jobd auth create-worker-token --dur
 The controller issues a token for `JOBD_QUEUE` (default `default`). `--duration` is required: whole seconds from `1s` through `720h` (30 days), using Go duration syntax such as `24h` or `168h`, not `7d`. HTTPS is required, including localhost. Token goes to stdout; expiry goes to stderr. Only send the generated token to the worker machine; never copy `JOBD_MASTER_KEY` there.
 
 Worker tokens allow listing/inspecting jobs and the full worker lifecycle, not job submission or administration. They are stateless and cannot be individually revoked before expiry. All requests fail after expiry; renew manually before expiry and restart workers while idle. For persistent storage, use a private `0600` file outside the repository, loaded by your service manager. No key file is created automatically.
+
+## Verify a worker token
+
+```sh
+jobd auth verify-worker-token
+```
+
+Checks `JOBD_WORKER_TOKEN` against the controller for `JOBD_QUEUE`, even when `JOBD_MASTER_KEY` is set. Prints the queue, UTC expiry, and remaining lifetime (for example, `23h59m58s`). Remaining time uses the CLI machine's clock, rounded down to whole seconds and clamped to zero. HTTPS is required, including localhost. Missing, invalid, expired, or wrong-queue tokens fail with a nonzero exit status. The token is never printed. This verifies authentication, not worker connectivity.
 
 ## Restart the local worker
 

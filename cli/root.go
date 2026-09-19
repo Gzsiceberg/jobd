@@ -16,6 +16,7 @@ Examples:
   jobd env set API_KEY=XXX KEY=SSS
   jobd worker restart
   jobd auth create-worker-token --duration 24h
+  jobd auth verify-worker-token
 
 Shortcuts:
   -l               List remote and local jobs (default; --local lists local only)

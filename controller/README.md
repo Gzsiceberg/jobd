@@ -107,6 +107,8 @@ curl --fail-with-body \
   "$JOBD_CONTROLLER/queues/$JOBD_QUEUE/auth/worker-token/verify"
 ```
 
+The CLI provides `jobd auth verify-worker-token` to verify `JOBD_WORKER_TOKEN` and print its expiry and remaining lifetime.
+
 `GET /queues/:name/auth/worker-token/verify` requires HTTPS and the worker token as Bearer authorization (not the master key). Returns `{"valid":true,"queue":"batch","expires_at":"..."}` (200). Missing, invalid or expired tokens return 401; a wrong queue or admin key returns 403. An unconfigured controller returns 503. Responses are not cacheable and never include the token. This checks authentication only, not worker connectivity or registration.
 
 `POST /queues/:name/auth/worker-token` accepts `{"duration_seconds":86400}` and returns `{"token":"...","expires_at":"...","queue":"batch"}` (201). Requires admin authentication and HTTPS, including localhost. Durations must be whole seconds from 1 through 2592000 (30 days). Responses are not cacheable.
