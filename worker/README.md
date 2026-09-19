@@ -92,7 +92,7 @@ The CLI connects to `<state-dir>/local/control.sock`. The socket is `0600`; its 
 
 `jobd --local job remove --all` asks for confirmation before atomically deleting queued and finished local records. The local socket endpoint is `POST /jobs/remove-all`; it returns `removed` and `kept_running` counts. Running jobs and their cancellation state remain intact, output files are kept, and job IDs are never reset.
 
-Controller jobs take priority. Local work starts immediately after a successful empty controller claim. Request failures block local work until a claim succeeds. Without a key, local work runs directly without controller requests.
+Controller jobs take priority. After the first failed controller job (including cancellation), the worker stops claiming controller jobs until it restarts. Heartbeats and local jobs continue; the failed result must still be accepted before more work runs. Local failures do not pause controller claims. Otherwise, local work starts immediately after a successful empty controller claim. Request failures block local work until a claim succeeds. Without a key, local work runs directly without controller requests.
 
 A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution and cancellation match controller jobs.
 

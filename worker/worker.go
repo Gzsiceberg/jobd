@@ -8,14 +8,15 @@ import (
 )
 
 type Worker struct {
-	localQueue        *localQueue
-	client            *ControllerClient
-	hostname          string
-	pollInterval      time.Duration
-	heartbeatInterval time.Duration
-	shutdownTimeout   time.Duration
-	processGrace      time.Duration
-	active            activeJobState
+	localQueue         *localQueue
+	client             *ControllerClient
+	hostname           string
+	pollInterval       time.Duration
+	heartbeatInterval  time.Duration
+	shutdownTimeout    time.Duration
+	processGrace       time.Duration
+	active             activeJobState
+	remoteClaimsPaused bool
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -49,13 +50,13 @@ func (w *Worker) Run(ctx context.Context) error {
 	for ctx.Err() == nil {
 		var job *Job
 		var err error
-		if w.client != nil {
+		if w.client != nil && !w.remoteClaimsPaused {
 			job, err = w.client.Claim(ctx)
 			if err != nil {
 				return fmt.Errorf("claim: %w", err)
 			}
 		}
-		// Claim local work only when the controller has no job, or is not configured.
+		// Local work can also run while remote claims are paused after a failure.
 		var backend jobBackend = w.client
 		if job == nil && ctx.Err() == nil {
 			job, err = w.localQueue.claim()
@@ -97,6 +98,10 @@ func (w *Worker) runJob(ctx context.Context, job Job, backend jobBackend) error 
 		cancel(nil)
 	}()
 	result := w.executeJob(jobCtx, job, backend)
+	if w.client != nil && backend == w.client && (result.ExitCode == nil || *result.ExitCode != 0 || result.Error != "") {
+		w.remoteClaimsPaused = true
+		slog.Warn("Remote claims paused until worker restart after failed job", "job", job.ID)
+	}
 	// Do not claim another job until this result is accepted.
 	if err := w.reportResult(ctx, job.ID, result, backend); err != nil {
 		return err

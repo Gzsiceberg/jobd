@@ -164,7 +164,7 @@ All job actions work with `--local`. IDs use `local-N`. Local jobs stay off the 
 
 The CLI starts a worker on demand as the same user. Existing workers keep their settings. Match `JOBD_STATE_DIR` (default `~/.local/state/jobd-worker`). The CLI uses an owner-only Unix socket, without TCP or an API key. Only the worker opens queue storage. `JOBD_QUEUE` and `JOBD_CONTROLLER` do not select local queues.
 
-Local jobs use the worker's directory and environment. Controller work takes priority. Local work starts immediately after a successful empty controller claim. Request failures can delay it. Once started, a local job runs to completion. Without a key, local work runs directly without controller requests.
+Local jobs use the worker's directory and environment. Controller work takes priority. A failed controller job pauses further remote claims until the worker restarts, while local work continues after the result is reported. Local failures do not pause remote claims. Otherwise, local work starts immediately after a successful empty controller claim. Request failures can delay it. Once started, a local job runs to completion. Without a key, local work runs directly without controller requests.
 
 The queue defaults to memory. Restart loses pending jobs and history, but keeps output logs. For persistence:
 
