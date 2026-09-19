@@ -1,0 +1,26 @@
+#!/bin/sh
+# Serve only fixture release assets; never access the network.
+set -eu
+printf '%s\n' "$*" >> "$JOBD_TEST_CURL_LOG"
+[ "${JOBD_TEST_CURL_FAIL:-0}" = 0 ] || exit 22
+output=; write_out=; protocols=0; url=
+while [ "$#" -gt 0 ]; do
+ case "$1" in
+  --fail|--silent|--show-error|--location) shift ;;
+  --proto|--proto-redir) [ "$2" = '=https' ]; protocols=$((protocols + 1)); shift 2 ;;
+  --retry|--connect-timeout|--max-time) shift 2 ;;
+  --output) output=$2; shift 2 ;;
+  --write-out) write_out=$2; shift 2 ;;
+  https://github.com/*) url=$1; shift ;;
+  *) exit 1 ;;
+ esac
+done
+[ "$protocols" = 2 ]
+case "$url" in
+ https://github.com/Gzsiceberg/jobd/releases/latest)
+  [ "$output" = /dev/null ] && [ "$write_out" = '%{url_effective}' ]
+  printf 'https://github.com/Gzsiceberg/jobd/releases/tag/%s' "$JOBD_TEST_TAG" ;;
+ "https://github.com/Gzsiceberg/jobd/releases/download/$JOBD_TEST_TAG/"*)
+  cp "$JOBD_TEST_ASSETS/${url##*/}" "$output" ;;
+ *) exit 1 ;;
+esac

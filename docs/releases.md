@@ -30,7 +30,7 @@ Tags containing a hyphen become prereleases. Install them with `--version`. Neve
 
 ```sh
 sh tooling/package-release.sh v0.1.0 dist
-uv run tooling/test-install.py
+uv run --with 'pytest>=8,<9' pytest tooling/install_tests
 ```
 
-[Packaging](../tooling/package-release.sh) builds binaries without installing them. [Tests](../tooling/test-install.py) run real binaries with local download fixtures. Neither publishes releases nor changes your installation.
+[Packaging](../tooling/package-release.sh) builds binaries without installing them. [Tests](../tooling/install_tests/) run real binaries with local download fixtures. Release assets are built once per session, then copied into a private sandbox for each test; archive corruption never modifies shared assets. Neither publishes releases nor changes your installation.

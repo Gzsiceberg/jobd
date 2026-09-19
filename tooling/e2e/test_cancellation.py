@@ -33,7 +33,7 @@ def test_remote_cancellation_and_restart(harness):
         ],
         ROOT,
     )
-    fixture = str(ROOT / "tooling/e2e_cancel_job.py")
+    fixture = str(ROOT / "tooling/e2e/fixtures/cancel_job.py")
     work = directory / "cancellation"
     work.mkdir()
     cancel_id = submit("uv", "run", fixture, str(work))

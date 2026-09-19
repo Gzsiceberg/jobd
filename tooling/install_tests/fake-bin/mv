@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fail once while replacing the second binary, but allow rollback moves.
+if [ "${JOBD_TEST_MV_FAIL:-0}" = 1 ] && [ ! -e "$JOBD_TEST_FAIL_MARKER" ]; then
+ case "$2" in
+  */backup/*) ;;
+  */.jobd-stage.*/jobd-worker) touch "$JOBD_TEST_FAIL_MARKER"; exit 1 ;;
+ esac
+fi
+exec "$JOBD_TEST_REAL_MV" "$@"

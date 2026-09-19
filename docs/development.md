@@ -114,7 +114,19 @@ The test cleans up its processes, state and identified logs. Existing workers an
 ## Installer tests
 
 ```sh
-uv run tooling/test-install.py
+uv run --with 'pytest>=8,<9' pytest tooling/install_tests
+uv run --with 'pytest>=8,<9' pytest tooling/install_tests -k rollback -v
 ```
 
-Uses isolated directories and local assets. See [packaging and installer tests](releases.md#local-packaging-and-installer-tests).
+Builds real release assets once per session. Every test gets copied assets, its own HOME, worker state and download log. No real GitHub downloads or changes to your installation occur.
+
+The suite lives in `tooling/install_tests/`:
+
+- `conftest.py`: build fixture, isolated sandboxes and teardown using a retained cleanup CLI.
+- `helpers.py`: subprocess assertions, file snapshots and archive/checksum editing.
+- `fake-bin/`: readable shell fixtures for curl, uname, mv failure injection and forbidden gh use.
+- `test_install.py`: validation, installation, upgrades, rollback, paths and conflicts.
+- `test_uninstall.py`: modified-file protection, worker shutdown and state preservation.
+- `test_archives.py`: checksum/content validation and ARM64 selection.
+
+Workers are cleaned up even if a test deletes or corrupts installed binaries. Failed tests include subprocess output, a sandbox listing and captured download requests. See [packaging and installer tests](releases.md#local-packaging-and-installer-tests).

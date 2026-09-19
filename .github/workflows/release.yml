@@ -27,7 +27,7 @@ jobs:
           (cd cli && go test -race ./... && go vet ./...)
           (cd worker && go test -race ./... && go vet ./...)
       - name: Test installer and uninstaller
-        run: uv run tooling/test-install.py
+        run: uv run --with 'pytest>=8,<9' pytest tooling/install_tests
       - name: Package release
         env:
           TAG: ${{ github.ref_name }}

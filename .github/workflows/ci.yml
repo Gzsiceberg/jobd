@@ -45,4 +45,4 @@ jobs:
           WRANGLER_LOG: debug
         run: uv run --with 'pytest>=8,<9' pytest tooling/e2e
       - name: Test public installer and uninstaller
-        run: uv run tooling/test-install.py
+        run: uv run --with 'pytest>=8,<9' pytest tooling/install_tests

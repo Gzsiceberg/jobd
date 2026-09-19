@@ -20,7 +20,6 @@ def test_local_priority_and_persistence(harness):
     worker = harness.worker
     output_paths = harness.output_paths
 
-    str(ROOT / "tooling/e2e_cancel_job.py")
     local_state = directory / "worker-local"
     remote_marker = directory / "remote-first"
     env["JOBD_STATE_DIR"] = str(local_state)
@@ -79,7 +78,7 @@ def test_local_cancellation_and_ordering(harness):
     local_state = directory / "worker-local"
     harness.env["JOBD_STATE_DIR"] = str(local_state)
     local_options = ("--local",)
-    fixture = str(ROOT / "tooling/e2e_cancel_job.py")
+    fixture = str(ROOT / "tooling/e2e/fixtures/cancel_job.py")
     local_worker = harness.start_worker(state=local_state)
 
     # With no controller job available, local work uses the same cancellation/execution flow.
