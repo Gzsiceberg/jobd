@@ -141,9 +141,13 @@ This atomically removes **queued and finished** records in the selected queue. R
 
 ```sh
 jobd job retry 123          # Requeue one failed job
+jobd job retry 42 43 44     # Requeue multiple failed jobs in order
+jobd job retry {42..56}     # Bash/Zsh range expansion
 jobd job retry --all        # Requeue all failed jobs in the selected queue
 jobd --local job retry --all
 ```
+
+Multiple IDs are processed sequentially, stopping on the first error; earlier successful retries are kept and their count is included in the error. IDs cannot be combined with `--all`.
 
 Retries keep the same IDs and commands, append jobs to the back of the queue, and clear previous execution details. Existing log files remain on disk. Only failed jobs are eligible; queued, running and successful jobs are unchanged. Remote retries require `JOBD_MASTER_KEY`. Retrying does not resume remote claims on a paused worker: use `jobd worker restart` on that worker.
 

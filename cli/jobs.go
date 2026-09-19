@@ -105,7 +105,9 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		if len(args) != 0 {
 			return fmt.Errorf("%s takes no arguments", action)
 		}
-	case "-o", "-r", "-u", "-k", "-retry":
+	case "-retry":
+		// No IDs means --all; Cobra validates the explicit command.
+	case "-o", "-r", "-u", "-k":
 		if len(args) > 1 {
 			return fmt.Errorf("%s takes at most one job ID", action)
 		}
@@ -131,17 +133,27 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		return err
 	}
 	if action == "-retry" {
-		path := "/jobs/retry-all"
-		if len(args) == 1 {
-			path = "/jobs/" + url.PathEscape(args[0]) + "/retry"
+		paths := []string{"/jobs/retry-all"}
+		if len(args) > 0 {
+			paths = make([]string, len(args))
+			for i, id := range args {
+				paths[i] = "/jobs/" + url.PathEscape(id) + "/retry"
+			}
 		}
-		var result struct {
-			Retried int64 `json:"retried"`
+		var retried int64
+		for i, path := range paths {
+			var result struct {
+				Retried int64 `json:"retried"`
+			}
+			if err := c.request("POST", path, struct{}{}, &result); err != nil {
+				if len(args) > 0 {
+					return fmt.Errorf("retry job %s (requeued %d earlier job(s)): %w", args[i], retried, err)
+				}
+				return err
+			}
+			retried += result.Retried
 		}
-		if err := c.request("POST", path, struct{}{}, &result); err != nil {
-			return err
-		}
-		_, err := fmt.Fprintf(out, "Requeued %d failed job(s).\n", result.Retried)
+		_, err := fmt.Fprintf(out, "Requeued %d failed job(s).\n", retried)
 		return err
 	}
 	if action == "-l" {
