@@ -87,8 +87,17 @@ def test_execution_output_elapsed_and_safeguards(harness):
     check("hello stderr" in Path(api(f"/jobs/{a}")["output_path"]).read_text(), "stderr not captured")
 
     queued = submit("echo", "queued")
-    for args in [("-r", a), ("-u", a), ("-U", a, queued), ("-U", queued, a)]:
+    for args in [("-r", a), ("-U", a, queued), ("-U", queued, a)]:
         check("409" in call(*args, success=False).stderr, f"Running job mutation accepted: {args}")
+    # Batch urgent reports per-target failures instead of an HTTP conflict.
+    result = call("-u", a, success=False)
+    check(result.stdout.strip() == "Prioritized 0 queued job(s).", "incorrect urgent success count")
+    check(
+        f"0 succeeded, 1 failed: {a}: Only queued jobs can be reordered" in result.stderr,
+        "urgent did not report the running job rejection",
+    )
+    check(api(f"/jobs/{a}")["status"] == "running", "urgent changed the running job")
+    check(api(f"/jobs/{queued}")["status"] == "queued", "urgent changed the queued job")
     call("-C")
     check(len(jobs()) == 3, "-C removed queued/running jobs")
     call("-r")
