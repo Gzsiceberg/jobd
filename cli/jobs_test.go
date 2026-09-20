@@ -53,7 +53,7 @@ func TestActions(t *testing.T) {
 		{[]string{"-C"}, "POST", "/jobs/clear", nil},
 		{[]string{"-r", "abc"}, "DELETE", "/jobs/abc", nil},
 		{[]string{"-k", "abc"}, "POST", "/jobs/abc/cancel", nil},
-		{[]string{"-u", "abc"}, "POST", "/jobs/abc/urgent", nil},
+		{[]string{"-u", "abc"}, "POST", "/jobs/urgent", nil},
 		{[]string{"-U", "abc", "def"}, "POST", "/jobs/swap", map[string]string{"first": "abc", "second": "def"}},
 	} {
 		t.Run(tc.args[0], func(t *testing.T) {

@@ -85,7 +85,7 @@ jobd worker pause a1b2c3d4 e5f6a7b8
 jobd worker resume a1b2c3d4 e5f6a7b8
 ```
 
-Multiple IDs/prefixes are processed in order, stopping on the first error. Earlier successes are kept and printed; errors include the number of earlier successful requests. The batch is not atomic.
+IDs/prefixes are sent in one server-side batch. Valid workers are updated even if another ID is missing or ambiguous. Successful workers are printed; failures identify each rejected target and make the CLI exit nonzero. Duplicate IDs are processed once; confirmations also deduplicate prefixes resolving to the same worker. The batch is not atomic.
 
 Requires `JOBD_MASTER_KEY`. Use a full worker ID or the prefix shown by `jobd -l`. Resolution includes all registered workers in `JOBD_QUEUE`, including idle/offline workers: exact IDs win, ambiguous prefixes fail and show matching IDs without changing anything.
 
@@ -102,7 +102,7 @@ jobd sh -c 'echo hi; sleep 60'
 jobd -o [ID]               # output path; default: last started
 jobd -r [ID]               # remove queued/finished job; default: last added
 jobd -k [ID]               # request cancellation; default: last started
-jobd -u [ID]               # move queued job first; default: last added
+jobd -u [ID...]            # move queued jobs first in argument order; default: last added
 jobd -U ID1 ID2            # swap queued jobs
 jobd -C                    # clear finished records
 ```
@@ -136,10 +136,18 @@ All job operations also have explicit forms that share the same implementation a
 | `jobd -o [ID]` | `jobd job output [ID]` |
 | `jobd -r [ID]` | `jobd job remove [ID]` |
 | `jobd -k [ID]` | `jobd job cancel [ID]` |
-| `jobd -u [ID]` | `jobd job urgent [ID]` |
+| `jobd -u [ID...]` | `jobd job urgent [ID...]` |
 | `jobd -U ID1 ID2` | `jobd job swap ID1 ID2` |
 
 Use `jobd --help`, `jobd help env`, or `jobd env set --help` for command help. `jobd env`, `jobd worker`, and `jobd job` show group help without performing operations. Generate shell completion with `jobd completion bash` (also supports Zsh, Fish, and PowerShell). Persistent `config` commands are not implemented yet.
+
+Batch retry, urgent, and worker pause/resume accept 1–100 IDs per request. Deploy the controller and update local workers before upgrading the CLI; these commands require the new batch endpoints. Single-target endpoints remain available for older clients. Malformed batch payloads are rejected before processing; valid payloads return per-target results. A lost response can leave outcomes unknown; the CLI does not automatically replay batches.
+
+## Prioritize queued jobs
+
+`jobd -u 3 5 2` (or `jobd job urgent 3 5 2`) moves queued jobs to the front in argument order: 3, then 5, then 2. Without IDs, it selects the last-added job. This also works with `--local`.
+
+IDs are sent in one server-side batch. The server processes them backward so successful targets retain argument order at the front. Invalid targets are skipped and reported; other targets still succeed. Duplicate IDs are processed once. The CLI prints the success count and exits nonzero if any target failed. The batch is not atomic; local workers may claim jobs between individual updates.
 
 ## Remove all non-running jobs
 
@@ -164,7 +172,7 @@ jobd job retry --all        # Requeue all failed jobs in the selected queue
 jobd --local job retry --all
 ```
 
-Multiple IDs are processed sequentially, stopping on the first error; earlier successful retries are kept and their count is included in the error. IDs cannot be combined with `--all`.
+IDs are sent in one server-side batch and processed in argument order. Invalid targets are skipped and reported; other targets still succeed. Duplicate IDs are processed once. The CLI prints the success count and exits nonzero if any target failed. IDs cannot be combined with `--all`, which retains its dedicated atomic operation.
 
 Retries keep the same IDs and commands, append jobs to the back of the queue, and clear previous execution details. Existing log files remain on disk. Only failed jobs are eligible; queued, running and successful jobs are unchanged. Remote retries require `JOBD_MASTER_KEY`. Retrying does not resume remote claims on a paused worker: use `jobd worker restart` on that worker.
 

@@ -107,7 +107,9 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		}
 	case "-retry":
 		// No IDs means --all; Cobra validates the explicit command.
-	case "-o", "-r", "-u", "-k":
+	case "-u":
+		// Any number of IDs; no IDs selects the last-added job.
+	case "-o", "-r", "-k":
 		if len(args) > 1 {
 			return fmt.Errorf("%s takes at most one job ID", action)
 		}
@@ -133,27 +135,23 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		return err
 	}
 	if action == "-retry" {
-		paths := []string{"/jobs/retry-all"}
 		if len(args) > 0 {
-			paths = make([]string, len(args))
-			for i, id := range args {
-				paths[i] = "/jobs/" + url.PathEscape(id) + "/retry"
-			}
-		}
-		var retried int64
-		for i, path := range paths {
-			var result struct {
-				Retried int64 `json:"retried"`
-			}
-			if err := c.request("POST", path, struct{}{}, &result); err != nil {
-				if len(args) > 0 {
-					return fmt.Errorf("retry job %s (requeued %d earlier job(s)): %w", args[i], retried, err)
-				}
+			var result batchResult[string]
+			if err := c.request("POST", "/jobs/retry", map[string]any{"ids": args}, &result); err != nil {
 				return err
 			}
-			retried += result.Retried
+			if _, err := fmt.Fprintf(out, "Requeued %d failed job(s).\n", len(result.Succeeded)); err != nil {
+				return err
+			}
+			return result.err("retry")
 		}
-		_, err := fmt.Fprintf(out, "Requeued %d failed job(s).\n", retried)
+		var result struct {
+			Retried int64 `json:"retried"`
+		}
+		if err := c.request("POST", "/jobs/retry-all", struct{}{}, &result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(out, "Requeued %d failed job(s).\n", result.Retried)
 		return err
 	}
 	if action == "-l" {
@@ -192,7 +190,18 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 	case "-r":
 		return c.request("DELETE", path, nil, nil)
 	case "-u":
-		return c.request("POST", path+"/urgent", struct{}{}, nil)
+		ids := args
+		if len(ids) == 0 {
+			ids = []string{selected.ID}
+		}
+		var result batchResult[string]
+		if err := c.request("POST", "/jobs/urgent", map[string]any{"ids": ids}, &result); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "Prioritized %d queued job(s).\n", len(result.Succeeded)); err != nil {
+			return err
+		}
+		return result.err("urgent")
 	case "-o":
 		if len(args) > 0 {
 			if err := c.request("GET", path, nil, &selected); err != nil {

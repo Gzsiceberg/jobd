@@ -69,7 +69,9 @@ func TestLocalCLI(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["first"] != "local-1" || body["second"] != "local-2" {
 				t.Errorf("swap: %+v %v", body, err)
 			}
-		case "DELETE /jobs/local-1", "POST /jobs/local-1/urgent", "POST /jobs/local-1/cancel", "POST /jobs/clear":
+		case "POST /jobs/urgent":
+			fmt.Fprint(w, `{"succeeded":["local-1"],"failed":[]}`)
+		case "DELETE /jobs/local-1", "POST /jobs/local-1/cancel", "POST /jobs/clear":
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL)
 			http.Error(w, "bad request", 400)

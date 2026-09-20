@@ -134,7 +134,7 @@ func TestExplicitJobActions(t *testing.T) {
 		{[]string{"clear"}, "POST", "/jobs/clear"},
 		{[]string{"remove", "1"}, "DELETE", "/jobs/1"},
 		{[]string{"cancel", "1"}, "POST", "/jobs/1/cancel"},
-		{[]string{"urgent", "1"}, "POST", "/jobs/1/urgent"},
+		{[]string{"urgent", "1"}, "POST", "/jobs/urgent"},
 		{[]string{"swap", "1", "2"}, "POST", "/jobs/swap"},
 		{[]string{"output", "1"}, "GET", "/jobs/1"},
 		{[]string{"list"}, "GET", "/jobs"},
