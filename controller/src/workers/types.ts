@@ -4,4 +4,5 @@ export interface Worker {
   status: 'idle' | 'busy' | 'offline';
   last_heartbeat: string;
   current_job_id: string | null;
+  paused: number;
 }

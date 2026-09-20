@@ -76,6 +76,23 @@ Use `jobd worker stop` to stop it, or `jobd worker start` to start it only if ne
 
 Install `jobd-worker` beside `jobd` or in `PATH`. Remote queue commands never auto-start a worker.
 
+## Pause remote assignments
+
+```sh
+jobd worker pause a1b2c3d4
+jobd worker resume a1b2c3d4
+jobd worker pause a1b2c3d4 e5f6a7b8
+jobd worker resume a1b2c3d4 e5f6a7b8
+```
+
+Multiple IDs/prefixes are processed in order, stopping on the first error. Earlier successes are kept and printed; errors include the number of earlier successful requests. The batch is not atomic.
+
+Requires `JOBD_MASTER_KEY`. Use a full worker ID or the prefix shown by `jobd -l`. Resolution includes all registered workers in `JOBD_QUEUE`, including idle/offline workers: exact IDs win, ambiguous prefixes fail and show matching IDs without changing anything.
+
+Pause prevents new controller assignments, not execution of an already assigned job. Current work finishes; heartbeats and local fallback jobs continue. A job assigned just before pause may start after confirmation. Pause is durable across worker/controller restarts until explicitly resumed; repeated pause/resume is safe. Confirmation shows the full worker ID and hostname. `--local` is not supported.
+
+Resume only clears this administrative pause. It does not clear the worker's separate pause after a failed remote job; that still requires restarting the worker. `worker stop` remains a local daemon shutdown that cancels active work.
+
 ## Commands
 
 ```sh

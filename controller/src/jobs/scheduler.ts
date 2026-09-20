@@ -53,8 +53,17 @@ export class Scheduler {
       hostname TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('idle', 'busy')),
       last_heartbeat TEXT NOT NULL,
-      current_job_id TEXT UNIQUE
+      current_job_id TEXT UNIQUE,
+      paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1))
     )`);
+    const columns = this.storage.sql
+      .exec<{ name: string }>('PRAGMA table_info(workers)')
+      .toArray();
+    if (!columns.some((column) => column.name === 'paused')) {
+      this.storage.sql.exec(
+        'ALTER TABLE workers ADD COLUMN paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1))',
+      );
+    }
   }
 
   /** Never replay work: a disconnected process may still be executing it. */
@@ -255,6 +264,40 @@ export class Scheduler {
     return this.job(id);
   }
 
+  setWorkerPaused(id: string, paused: boolean): Worker {
+    return this.storage.transactionSync(() => {
+      // Exact IDs win; substr treats SQL wildcard characters literally.
+      const exact = this.storage.sql
+        .exec<{ worker_id: string }>(
+          'SELECT worker_id FROM workers WHERE worker_id = ?',
+          id,
+        )
+        .toArray();
+      const matches = exact.length
+        ? exact
+        : this.storage.sql
+            .exec<{ worker_id: string }>(
+              'SELECT worker_id FROM workers WHERE substr(worker_id, 1, length(?)) = ? ORDER BY worker_id',
+              id,
+              id,
+            )
+            .toArray();
+      if (!matches.length) throw new ApiError(404, 'Worker not found');
+      if (matches.length > 1)
+        throw new ApiError(
+          409,
+          `Ambiguous worker prefix; use a longer ID: ${matches.map((worker) => worker.worker_id).join(', ')}`,
+        );
+      const workerId = matches[0].worker_id;
+      this.storage.sql.exec(
+        'UPDATE workers SET paused = ? WHERE worker_id = ?',
+        paused ? 1 : 0,
+        workerId,
+      );
+      return this.worker(workerId);
+    });
+  }
+
   register(workerId: string, hostname: string): Worker {
     // Registration retries preserve any existing assignment.
     this.storage.sql.exec(
@@ -296,6 +339,7 @@ export class Scheduler {
       );
       // A lost claim response must not assign a second job to the same worker.
       if (worker.current_job_id) return this.job(worker.current_job_id);
+      if (worker.paused) return null;
       const next = this.storage.sql
         .exec<{ id: string }>(
           "SELECT id FROM jobs WHERE status = 'queued' ORDER BY queue_position, sequence LIMIT 1",

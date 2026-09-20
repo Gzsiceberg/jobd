@@ -12,7 +12,7 @@ Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names
 
 Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use separate daemons and state directories for more queues. There is no queue registry or cross-queue claiming.
 
-Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all` (under the queue prefix, requiring the master key). Both return `{ "retried": N }`. Retries preserve IDs, commands and creation timestamps, clear execution details and cancellation flags, and append jobs behind queued work. Bulk retries are atomic and affect only failed jobs; single-job retries reject other states with 409. Log files are not deleted. Retrying does not resume workers whose remote claims are paused; restart those workers separately.
+Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all` (under the queue prefix, requiring the master key). Both return `{ "retried": N }`. Retries preserve IDs, commands and creation timestamps, clear execution details and cancellation flags, and append jobs behind queued work. Bulk retries are atomic and affect only failed jobs; single-job retries reject other states with 409. Log files are not deleted. Retrying does not clear a worker's failure-triggered pause (restart that worker) or an administrative pause (`jobd worker resume ID`).
 
 | Method | Path                       | Body / notes                                                        |
 | ------ | -------------------------- | ------------------------------------------------------------------- |
@@ -37,6 +37,12 @@ Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all
 - Heartbeats return `cancel_job_id`, or `null`. Jobs expose `cancel_requested` as 0 or 1. A request does not mean the process stopped.
 - Worker status comes from assignments, not heartbeat payloads. Workers whose last heartbeat is at least two minutes old are reported as `offline`.
 - `POST /jobs/remove-all` with `{}` atomically deletes queued and finished records and returns `{"removed":N,"kept_running":N}`. Healthy running jobs and their assignments, queue secrets, and job ID sequences are preserved; stale assignments are expired first. Output files are never deleted. The CLI requires typed confirmation before calling this authenticated endpoint; direct API callers are responsible for their own confirmation. Deletion uses the jobs present at execution time, not a snapshot taken at the prompt.
+
+### Pause remote assignments
+
+Admin-only `POST /workers/:id/pause` and `POST /workers/:id/resume` (under the queue prefix; no body required) return the worker, including `paused` (`0` or `1`). IDs may be full IDs or literal prefixes. Exact matches win; no match returns 404; multiple matches return 409 with matching IDs and no changes. Resolution considers all registered workers and is atomic with the update.
+
+The durable pause flag is separate from idle/busy/offline status and survives registration, restarts, completion and stale-worker cleanup. Claims still return any existing assignment for retry recovery, but cannot create a new one while paused. Current work, heartbeats and local fallback jobs continue. A claim committed before pause can still execute afterward. Both operations are idempotent; worker tokens cannot call them. Resume does not clear the worker's separate failure-triggered pause.
 
 ### Disconnected workers
 

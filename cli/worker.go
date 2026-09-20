@@ -3,11 +3,47 @@ package main
 import (
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+// Process in order, retaining earlier successes when a later request fails.
+func setWorkersPaused(c *client, ids []string, paused bool, out io.Writer) error {
+	action := "resume"
+	if paused {
+		action = "pause"
+	}
+	for i, id := range ids {
+		if err := setWorkerPaused(c, id, paused, out); err != nil {
+			return fmt.Errorf("%s worker %s (%d earlier request(s) succeeded): %w", action, id, i, err)
+		}
+	}
+	return nil
+}
+
+// Remote scheduling controls never start or stop the local daemon.
+func setWorkerPaused(c *client, id string, paused bool, out io.Writer) error {
+	if strings.TrimSpace(os.Getenv("JOBD_MASTER_KEY")) == "" {
+		return fmt.Errorf("JOBD_MASTER_KEY is required to pause or resume workers")
+	}
+	action, state := "resume", "enabled"
+	if paused {
+		action, state = "pause", "paused"
+	}
+	var worker struct {
+		ID       string `json:"worker_id"`
+		Hostname string `json:"hostname"`
+	}
+	if err := c.request(http.MethodPost, "/workers/"+url.PathEscape(id)+"/"+action, nil, &worker); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(out, "Worker %s (%q): new remote assignments %s.\n", worker.ID, worker.Hostname, state)
+	return err
+}
 
 func workerBinary() (string, error) {
 	self, err := os.Executable()

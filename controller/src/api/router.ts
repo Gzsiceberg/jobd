@@ -127,6 +127,16 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
     const body = registration.parse(await c.req.json<unknown>());
     return c.json(scheduler.register(body.worker_id, body.hostname));
   });
+  for (const action of ['pause', 'resume'] as const) {
+    app.post(`/workers/:id/${action}`, (c) =>
+      c.json(
+        scheduler.setWorkerPaused(
+          text.parse(c.req.param('id')),
+          action === 'pause',
+        ),
+      ),
+    );
+  }
   app.post('/workers/:id/heartbeat', async (c) => {
     z.object({}).parse(await c.req.json<unknown>());
     return c.json(scheduler.heartbeat(c.req.param('id')));

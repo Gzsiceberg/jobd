@@ -105,6 +105,10 @@ Invalid values are rejected. Export the setting and run `jobd worker restart` to
 
 Logs, identity and the daemon lock stay on disk in both modes. See [local CLI commands](../cli/README.md#local-fallback-jobs).
 
+## Administrative pause
+
+From an admin CLI, `jobd worker pause ID_OR_PREFIX` prevents new controller assignments for this worker until `jobd worker resume ID_OR_PREFIX`. The controller persists the pause across worker restarts. Already assigned work finishes; heartbeats, reports and local fallback jobs continue. No worker upgrade is needed. Resume does not clear the separate failure-triggered pause described above; that still requires a worker restart. See [CLI usage](../cli/README.md#pause-remote-assignments).
+
 ## Remote cancellation
 
 `jobd -k [ID]` requests cancellation of a running job. Without an ID, it selects the last-started remaining job. Use `-r` for queued jobs.
