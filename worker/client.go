@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,7 +22,10 @@ type WorkerRecord struct {
 	CancelJobID  *string `json:"cancel_job_id"`
 }
 
+var errControllerAuth = errors.New("controller authentication rejected; remote work disabled until restart")
+
 type ControllerClient struct {
+	authRejected  atomic.Bool
 	apiKey        string
 	baseURL       string
 	workerID      string
@@ -108,6 +113,9 @@ func (c *ControllerClient) workerPath(action string) string {
 // post is the only retry layer. Calls keep their original payload until accepted,
 // stopped, or rejected permanently. The controller's mutations are retry-safe.
 func (c *ControllerClient) post(ctx context.Context, path string, body, output any) error {
+	if c.authRejected.Load() {
+		return errControllerAuth
+	}
 	if c.apiKey == "" {
 		return fmt.Errorf("JOBD_WORKER_TOKEN is required")
 	}
@@ -118,6 +126,9 @@ func (c *ControllerClient) post(ctx context.Context, path string, body, output a
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if c.authRejected.Load() {
+			return errControllerAuth
 		}
 		retry, err := c.postOnce(ctx, path, payload, output)
 		if err == nil || !retry {
@@ -146,6 +157,12 @@ func (c *ControllerClient) postOnce(ctx context.Context, path string, payload []
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		if !c.authRejected.Swap(true) {
+			slog.Warn("Controller authentication rejected; continuing local work only until restart", "status", response.Status)
+		}
+		return false, fmt.Errorf("POST %s: %s: %w", path, response.Status, errControllerAuth)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		retry = response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
 		return retry, fmt.Errorf("POST %s: %s", path, response.Status)

@@ -12,12 +12,48 @@ import (
 	"time"
 )
 
+// Execute exercises job-level log ownership as well as the process runner.
+func Execute(ctx context.Context, command []string, grace time.Duration) Result {
+	worker := &Worker{processGrace: grace}
+	return worker.executeJob(ctx, Job{Command: command}, &executionTestBackend{})
+}
+
+type executionTestBackend struct {
+	t        *testing.T
+	marker   string
+	reported string
+	reject   bool
+}
+
+func (b *executionTestBackend) Output(_ context.Context, _ string, path string) error {
+	b.reported = path
+	if b.t != nil {
+		if _, err := os.Stat(path); err != nil {
+			b.t.Error(err)
+		}
+		if _, err := os.Stat(b.marker); !os.IsNotExist(err) {
+			b.t.Error("command started before reporting")
+		}
+	}
+	if b.reject {
+		return fmt.Errorf("controller rejected output")
+	}
+	return nil
+}
+
+func (*executionTestBackend) Finish(context.Context, string, Result) error {
+	panic("executeJob must not report the result")
+}
+
 func TestJobDoesNotInheritAPIKey(t *testing.T) {
 	t.Setenv("JOBD_WORKER_TOKEN", "worker-secret")
 	t.Setenv("JOBD_MASTER_KEY", "controller-only-secret")
 	t.Setenv("JOBD_TEST_KEEP", "kept")
-	result := execute(context.Background(), []string{"sh", "-c", `test "${JOBD_WORKER_TOKEN+x}" != x && test "${JOBD_MASTER_KEY+x}" != x && test "$JOBD_TEST_KEEP" = kept && test "$JOBD_CUSTOM" = custom-value`}, time.Millisecond,
-		[]string{"JOBD_WORKER_TOKEN=override-secret", "JOBD_CUSTOM=custom-value"})
+	worker := &Worker{processGrace: time.Millisecond}
+	result := worker.executeJob(context.Background(), Job{
+		Command:  []string{"sh", "-c", `test "${JOBD_WORKER_TOKEN+x}" != x && test "${JOBD_MASTER_KEY+x}" != x && test "$JOBD_TEST_KEEP" = kept && test "$JOBD_CUSTOM" = custom-value`},
+		queueEnv: map[string]string{"JOBD_WORKER_TOKEN": "override-secret", "JOBD_CUSTOM": "custom-value"},
+	}, &executionTestBackend{})
 	t.Cleanup(func() { os.Remove(result.OutputPath) })
 	if result.ExitCode == nil || *result.ExitCode != 0 {
 		t.Fatalf("job environment filtering failed: %+v", result)
@@ -30,22 +66,11 @@ func TestJobDoesNotInheritAPIKey(t *testing.T) {
 func TestOutputReportedBeforeLaunch(t *testing.T) {
 	for _, reject := range []bool{false, true} {
 		marker := filepath.Join(t.TempDir(), "started")
-		var reported string
-		result := Execute(context.Background(), []string{"touch", marker}, time.Millisecond, func(path string) error {
-			reported = path
-			if _, err := os.Stat(path); err != nil {
-				t.Error(err)
-			}
-			if _, err := os.Stat(marker); !os.IsNotExist(err) {
-				t.Error("command started before reporting")
-			}
-			if reject {
-				return fmt.Errorf("controller rejected output")
-			}
-			return nil
-		})
+		backend := &executionTestBackend{t: t, marker: marker, reject: reject}
+		worker := &Worker{processGrace: time.Millisecond}
+		result := worker.executeJob(context.Background(), Job{Command: []string{"touch", marker}}, backend)
 		os.Remove(result.OutputPath)
-		if reported == "" || reported != result.OutputPath {
+		if backend.reported == "" || backend.reported != result.OutputPath {
 			t.Fatalf("output: %+v", result)
 		}
 		if reject {

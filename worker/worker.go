@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -31,7 +32,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	if w.client != nil {
 		record, err := w.client.Register(ctx, w.hostname)
-		if err != nil {
+		if err != nil && !errors.Is(err, errControllerAuth) {
 			return fmt.Errorf("register: %w", err)
 		}
 		heartbeatDone := make(chan struct{})
@@ -50,9 +51,9 @@ func (w *Worker) Run(ctx context.Context) error {
 	for ctx.Err() == nil {
 		var job *Job
 		var err error
-		if w.client != nil && !w.remoteClaimsPaused {
+		if w.client != nil && !w.client.authRejected.Load() && !w.remoteClaimsPaused {
 			job, err = w.client.Claim(ctx)
-			if err != nil {
+			if err != nil && !errors.Is(err, errControllerAuth) {
 				return fmt.Errorf("claim: %w", err)
 			}
 		}
@@ -102,7 +103,7 @@ func (w *Worker) runJob(ctx context.Context, job Job, backend jobBackend) error 
 		w.remoteClaimsPaused = true
 		slog.Warn("Remote claims paused until worker restart after failed job", "job", job.ID)
 	}
-	// Do not claim another job until this result is accepted.
+	// Wait for acceptance, unless rejected authentication disables remote work.
 	if err := w.reportResult(ctx, job.ID, result, backend); err != nil {
 		return err
 	}
@@ -118,6 +119,10 @@ func (w *Worker) reportResult(ctx context.Context, jobID string, result Result, 
 		defer cancel()
 		err = backend.Finish(reportCtx, jobID, result)
 	}
+	if backend == w.client && errors.Is(err, errControllerAuth) {
+		slog.Error("Remote result not accepted; continuing local work only", "job", jobID, "error", err)
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("report result for %s: %w", jobID, err)
 	}
@@ -125,12 +130,15 @@ func (w *Worker) reportResult(ctx context.Context, jobID string, result Result, 
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context) {
-	for ctx.Err() == nil {
+	for ctx.Err() == nil && !w.client.authRejected.Load() {
 		record, err := w.client.Heartbeat(ctx)
 		if err != nil && ctx.Err() == nil {
 			slog.Warn("Heartbeat failed", "error", err)
 		} else if err == nil && record.CancelJobID != nil {
 			w.active.RequestCancellation(*record.CancelJobID)
+		}
+		if errors.Is(err, errControllerAuth) {
+			return
 		}
 		if err := wait(ctx, w.heartbeatInterval); err != nil {
 			return

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -18,11 +17,6 @@ type Result struct {
 	OutputPath string
 }
 
-// Execute runs argv directly and saves combined stdout/stderr in a retained /tmp log.
-func Execute(ctx context.Context, command []string, grace time.Duration, onOutput ...func(string) error) Result {
-	return execute(ctx, command, grace, nil, onOutput...)
-}
-
 func executionCancellation(ctx context.Context, fallback string) string {
 	if errors.Is(context.Cause(ctx), errRemoteCancellation) {
 		return errRemoteCancellation.Error()
@@ -30,33 +24,14 @@ func executionCancellation(ctx context.Context, fallback string) string {
 	return fallback
 }
 
-func execute(ctx context.Context, command []string, grace time.Duration, env []string, onOutput ...func(string) error) (result Result) {
+// execute runs argv with combined stdout/stderr in output. The caller owns the file.
+func execute(ctx context.Context, command []string, grace time.Duration, env []string, output *os.File) Result {
 	if ctx.Err() != nil {
 		return Result{Error: executionCancellation(ctx, "Worker shutting down")}
 	}
 	if len(command) == 0 {
 		return Result{Error: "Empty command"}
 	}
-	output, err := os.CreateTemp("/tmp", "jobd-*.log")
-	if err != nil {
-		return Result{Error: truncateError(fmt.Sprintf("Create command output file: %v", err))}
-	}
-	defer func() {
-		result.OutputPath = output.Name()
-		if err := output.Close(); err != nil {
-			slog.Warn("Closing command output file failed", "output", output.Name(), "error", err)
-		}
-	}()
-	slog.Info("Command output redirected", "output", output.Name())
-	for _, notify := range onOutput {
-		if err := notify(output.Name()); err != nil {
-			return Result{Error: executionCancellation(ctx, truncateError(fmt.Sprintf("Report output path: %v", err)))}
-		}
-	}
-	if ctx.Err() != nil {
-		return Result{Error: executionCancellation(ctx, "Worker shut down before execution")}
-	}
-
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = jobEnvironment(append(os.Environ(), env...))
 	cmd.Stdout = output
