@@ -19,7 +19,7 @@ func TestOutputAuthErrorDoesNotPreventClaimedJobExecution(t *testing.T) {
 				w.WriteHeader(status)
 			})
 			ctx := context.Background()
-			if err := client.Output(ctx, "remote", "/tmp/test.log"); !errors.Is(err, errControllerAuth) {
+			if err := client.Output(ctx, "remote", "/tmp/test.log"); !errors.Is(err, errRemoteDisabled) {
 				t.Fatalf("Output must preserve the authentication error: %v", err)
 			}
 			worker := testWorker(t, client)
@@ -34,9 +34,9 @@ func TestOutputAuthErrorDoesNotPreventClaimedJobExecution(t *testing.T) {
 	}
 }
 
-func TestAuthenticationRejectionContinuesLocalWork(t *testing.T) {
+func TestRemoteDisableContinuesLocalWork(t *testing.T) {
 	for _, endpoint := range []string{"register", "claim", "output", "complete", "fail", "heartbeat", "recovery"} {
-		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable} {
 			t.Run(fmt.Sprintf("%s/%d", endpoint, status), func(t *testing.T) {
 				q := testLocalQueue(t)
 				for i := 0; i < 2; i++ {
@@ -64,6 +64,7 @@ func TestAuthenticationRejectionContinuesLocalWork(t *testing.T) {
 					}
 					fmt.Fprint(w, `{}`)
 				})
+				client.retryTimeout = 100 * time.Millisecond
 				worker := testWorker(t, client)
 				worker.localQueue = q
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -79,7 +80,7 @@ func TestAuthenticationRejectionContinuesLocalWork(t *testing.T) {
 							return
 						case <-ticker.C:
 							job, err := q.get("local-2")
-							if err == nil && job.Status == "succeeded" && client.authRejected.Load() {
+							if err == nil && job.Status == "succeeded" && client.remoteDisabled.Load() {
 								cancel()
 								return
 							}
@@ -92,8 +93,8 @@ func TestAuthenticationRejectionContinuesLocalWork(t *testing.T) {
 				if !errors.Is(err, context.Canceled) {
 					t.Fatalf("Run: %v", err)
 				}
-				if !client.authRejected.Load() {
-					t.Fatal("remote authentication not disabled")
+				if !client.remoteDisabled.Load() {
+					t.Fatal("remote work not disabled")
 				}
 				for _, job := range queueJobs(t, q) {
 					if job.Status != "succeeded" {

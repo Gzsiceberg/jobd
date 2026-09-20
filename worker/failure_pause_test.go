@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestRemoteFailurePausesClaimsButRunsLocalJobs(t *testing.T) {
+func TestRemoteFailureReportsThenDisablesRemoteButRunsLocalJobs(t *testing.T) {
 	for _, command := range [][]string{{"false"}, {"/nonexistent-jobd-command"}} {
 		t.Run(command[0], func(t *testing.T) {
 			q := testLocalQueue(t)
@@ -32,18 +32,27 @@ func TestRemoteFailurePausesClaimsButRunsLocalJobs(t *testing.T) {
 				case strings.HasSuffix(r.URL.Path, "/fail"):
 					reports.Add(1)
 					fmt.Fprint(w, `{}`)
-				case strings.HasSuffix(r.URL.Path, "/heartbeat"):
-					job, _ := q.get("local-2")
-					if job.Status == "succeeded" {
-						cancel()
-					}
-					fmt.Fprint(w, `{}`)
 				default:
 					fmt.Fprint(w, `{}`)
 				}
 			})
 			worker := testWorker(t, client)
 			worker.localQueue = q
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for ctx.Err() == nil {
+					job, _ := q.get("local-2")
+					if job.Status == "succeeded" {
+						cancel()
+						return
+					}
+					if err := wait(ctx, time.Millisecond); err != nil {
+						return
+					}
+				}
+			}()
+			defer func() { cancel(); <-done }()
 			if err := worker.Run(ctx); !errors.Is(err, context.Canceled) {
 				t.Fatalf("run: %v", err)
 			}
@@ -55,8 +64,11 @@ func TestRemoteFailurePausesClaimsButRunsLocalJobs(t *testing.T) {
 			if first.Status != "failed" || second.Status != "succeeded" {
 				t.Fatalf("local statuses: %s, %s", first.Status, second.Status)
 			}
-			if testWorker(t, client).remoteClaimsPaused {
-				t.Fatal("new worker inherited paused claims")
+			if !client.remoteDisabled.Load() {
+				t.Fatal("remote work not disabled after failure report")
+			}
+			if _, err := client.Heartbeat(context.Background()); !errors.Is(err, errRemoteDisabled) {
+				t.Fatalf("heartbeat after failure: %v", err)
 			}
 		})
 	}
@@ -74,7 +86,7 @@ func TestLocalFailureDoesNotPauseRemoteClaims(t *testing.T) {
 	if err := worker.runJob(context.Background(), *job, q); err != nil {
 		t.Fatal(err)
 	}
-	if worker.remoteClaimsPaused {
+	if client.remoteDisabled.Load() {
 		t.Fatal("local failure paused remote claims")
 	}
 }

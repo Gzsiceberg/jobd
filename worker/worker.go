@@ -9,15 +9,14 @@ import (
 )
 
 type Worker struct {
-	localQueue         *localQueue
-	client             *ControllerClient
-	hostname           string
-	pollInterval       time.Duration
-	heartbeatInterval  time.Duration
-	shutdownTimeout    time.Duration
-	processGrace       time.Duration
-	active             activeJobState
-	remoteClaimsPaused bool
+	localQueue        *localQueue
+	client            *ControllerClient
+	hostname          string
+	pollInterval      time.Duration
+	heartbeatInterval time.Duration
+	shutdownTimeout   time.Duration
+	processGrace      time.Duration
+	active            activeJobState
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -32,7 +31,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	if w.client != nil {
 		record, err := w.client.Register(ctx, w.hostname)
-		if err != nil && !errors.Is(err, errControllerAuth) {
+		if err != nil && !errors.Is(err, errRemoteDisabled) {
 			return fmt.Errorf("register: %w", err)
 		}
 		heartbeatDone := make(chan struct{})
@@ -51,9 +50,9 @@ func (w *Worker) Run(ctx context.Context) error {
 	for ctx.Err() == nil {
 		var job *Job
 		var err error
-		if w.client != nil && !w.client.authRejected.Load() && !w.remoteClaimsPaused {
+		if w.client != nil && !w.client.remoteDisabled.Load() {
 			job, err = w.client.Claim(ctx)
-			if err != nil && !errors.Is(err, errControllerAuth) {
+			if err != nil && !errors.Is(err, errRemoteDisabled) {
 				return fmt.Errorf("claim: %w", err)
 			}
 		}
@@ -99,13 +98,12 @@ func (w *Worker) runJob(ctx context.Context, job Job, backend jobBackend) error 
 		cancel(nil)
 	}()
 	result := w.executeJob(jobCtx, job, backend)
-	if w.client != nil && backend == w.client && (result.ExitCode == nil || *result.ExitCode != 0 || result.Error != "") {
-		w.remoteClaimsPaused = true
-		slog.Warn("Remote claims paused until worker restart after failed job", "job", job.ID)
-	}
-	// Wait for acceptance, unless rejected authentication disables remote work.
+	// Wait for acceptance, unless remote work is disabled.
 	if err := w.reportResult(ctx, job.ID, result, backend); err != nil {
 		return err
+	}
+	if w.client != nil && backend == w.client && (result.ExitCode == nil || *result.ExitCode != 0 || result.Error != "") {
+		w.client.disableRemote(fmt.Errorf("remote job %s failed", job.ID))
 	}
 	slog.Info("Job finished", "job", job.ID, "exit_code", result.ExitCode, "error", result.Error, "output", result.OutputPath)
 	return nil
@@ -119,7 +117,7 @@ func (w *Worker) reportResult(ctx context.Context, jobID string, result Result, 
 		defer cancel()
 		err = backend.Finish(reportCtx, jobID, result)
 	}
-	if backend == w.client && errors.Is(err, errControllerAuth) {
+	if backend == w.client && errors.Is(err, errRemoteDisabled) {
 		slog.Error("Remote result not accepted; continuing local work only", "job", jobID, "error", err)
 		return nil
 	}
@@ -130,14 +128,14 @@ func (w *Worker) reportResult(ctx context.Context, jobID string, result Result, 
 }
 
 func (w *Worker) heartbeatLoop(ctx context.Context) {
-	for ctx.Err() == nil && !w.client.authRejected.Load() {
+	for ctx.Err() == nil && !w.client.remoteDisabled.Load() {
 		record, err := w.client.Heartbeat(ctx)
 		if err != nil && ctx.Err() == nil {
 			slog.Warn("Heartbeat failed", "error", err)
 		} else if err == nil && record.CancelJobID != nil {
 			w.active.RequestCancellation(*record.CancelJobID)
 		}
-		if errors.Is(err, errControllerAuth) {
+		if errors.Is(err, errRemoteDisabled) {
 			return
 		}
 		if err := wait(ctx, w.heartbeatInterval); err != nil {

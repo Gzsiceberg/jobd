@@ -22,15 +22,16 @@ type WorkerRecord struct {
 	CancelJobID  *string `json:"cancel_job_id"`
 }
 
-var errControllerAuth = errors.New("controller authentication rejected; remote work disabled until restart")
+var errRemoteDisabled = errors.New("remote work disabled until restart")
 
 type ControllerClient struct {
-	authRejected  atomic.Bool
-	apiKey        string
-	baseURL       string
-	workerID      string
-	http          *http.Client
-	retryInterval time.Duration
+	remoteDisabled atomic.Bool
+	retryTimeout   time.Duration
+	apiKey         string
+	baseURL        string
+	workerID       string
+	http           *http.Client
+	retryInterval  time.Duration
 }
 
 func NewControllerClient(address, workerID, queue string, retryInterval time.Duration) (*ControllerClient, error) {
@@ -46,6 +47,7 @@ func NewControllerClient(address, workerID, queue string, retryInterval time.Dur
 		baseURL:       strings.TrimRight(address, "/") + "/queues/" + queue,
 		workerID:      workerID,
 		retryInterval: retryInterval,
+		retryTimeout:  10 * time.Minute,
 		http: &http.Client{
 			Timeout: 10 * time.Second,
 			// Do not turn a redirected POST into a GET or send it to another host.
@@ -112,10 +114,19 @@ func (c *ControllerClient) workerPath(action string) string {
 
 // post is the only retry layer. Calls keep their original payload until accepted,
 // stopped, or rejected permanently. The controller's mutations are retry-safe.
-func (c *ControllerClient) post(ctx context.Context, path string, body, output any) error {
-	if c.authRejected.Load() {
-		return errControllerAuth
+func (c *ControllerClient) post(ctx context.Context, path string, body, output any) (err error) {
+	if c.remoteDisabled.Load() {
+		return errRemoteDisabled
 	}
+	parent := ctx
+	ctx, cancel := context.WithTimeout(parent, c.retryTimeout)
+	defer cancel()
+	defer func() {
+		// A caller's shorter deadline (including shutdown) is not an outage.
+		if err != nil && parent.Err() == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = c.disableRemote(fmt.Errorf("POST %s exceeded %s retry deadline", path, c.retryTimeout))
+		}
+	}()
 	if c.apiKey == "" {
 		return fmt.Errorf("JOBD_WORKER_TOKEN is required")
 	}
@@ -127,8 +138,8 @@ func (c *ControllerClient) post(ctx context.Context, path string, body, output a
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if c.authRejected.Load() {
-			return errControllerAuth
+		if c.remoteDisabled.Load() {
+			return errRemoteDisabled
 		}
 		retry, err := c.postOnce(ctx, path, payload, output)
 		if err == nil || !retry {
@@ -158,10 +169,7 @@ func (c *ControllerClient) postOnce(ctx context.Context, path string, payload []
 	defer response.Body.Close()
 
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-		if !c.authRejected.Swap(true) {
-			slog.Warn("Controller authentication rejected; continuing local work only until restart", "status", response.Status)
-		}
-		return false, fmt.Errorf("POST %s: %s: %w", path, response.Status, errControllerAuth)
+		return false, c.disableRemote(fmt.Errorf("POST %s: %s", path, response.Status))
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		retry = response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
@@ -182,6 +190,13 @@ func (c *ControllerClient) postOnce(ctx context.Context, path string, payload []
 		}
 	}
 	return false, nil
+}
+
+func (c *ControllerClient) disableRemote(reason error) error {
+	if !c.remoteDisabled.Swap(true) {
+		slog.Warn("Remote work disabled; continuing local work only until restart", "error", reason)
+	}
+	return fmt.Errorf("%w: %v", errRemoteDisabled, reason)
 }
 
 func wait(ctx context.Context, interval time.Duration) error {

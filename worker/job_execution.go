@@ -33,8 +33,8 @@ func (w *Worker) executeJob(ctx context.Context, job Job, backend jobBackend) (r
 		}
 	}()
 	slog.Info("Command output redirected", "output", output.Name())
-	// A rejected token must not prevent an already claimed job from executing.
-	if err := backend.Output(ctx, job.ID, output.Name()); err != nil && !(backend == w.client && errors.Is(err, errControllerAuth)) {
+	// Disabling remote requests must not prevent an already claimed job from executing.
+	if err := backend.Output(ctx, job.ID, output.Name()); err != nil && !(backend == w.client && errors.Is(err, errRemoteDisabled)) {
 		return Result{Error: executionCancellation(ctx, truncateError(fmt.Sprintf("Report output path: %v", err)))}
 	}
 	environment := make([]string, 0, len(job.queueEnv))

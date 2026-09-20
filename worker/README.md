@@ -33,7 +33,7 @@ For a standalone Linux binary, set `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`. Use 
 
 Flags override environment values. Interval flags use seconds.
 
-Set `JOBD_WORKER_TOKEN` to a generated worker token for this queue (`jobd auth create-worker-token --duration 24h` in a trusted admin shell with `JOBD_MASTER_KEY`). Never configure the admin key on workers. Tokens expire; replace them before expiry and restart while idle. After a 401/403, the worker disables remote requests until restart and continues local jobs. An already claimed remote job can finish execution, but its result cannot be reported with the rejected token. No automatic renewal or individual revocation is implemented. Store persistent tokens in a private `0600` file outside the repository, loaded by your service manager. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
+Set `JOBD_WORKER_TOKEN` to a generated worker token for this queue (`jobd auth create-worker-token --duration 24h` in a trusted admin shell with `JOBD_MASTER_KEY`). Never configure the admin key on workers. Tokens expire; replace them before expiry and restart while idle. After a 401/403 or a controller operation's 10-minute retry deadline, the worker disables remote requests until restart and continues local jobs. An already claimed remote job can finish execution, but its result will not be reported once remote work is disabled. No automatic renewal or individual revocation is implemented. Store persistent tokens in a private `0600` file outside the repository, loaded by your service manager. Without it, the worker runs only local jobs. Restart to apply environment changes. Use HTTPS outside localhost.
 
 The state directory holds the worker ID. Use separate directories for separate daemons. Never copy an identity to another VM.
 
@@ -80,8 +80,8 @@ Worker lifecycle commands use this endpoint to check readiness. An unhealthy res
 - Jobs use the worker's user, directory and environment, except `JOBD_WORKER_TOKEN` and `JOBD_MASTER_KEY`. They are **not sandboxed**.
 - Combined stdout/stderr goes to owner-only `/tmp/jobd-*.log` files. Paths are logged. Files stay on the worker; arrange cleanup yourself.
 - Ctrl-C or SIGTERM stops polling. The active process group gets TERM, then KILL after 5 seconds. Final reporting has a separate 10-second deadline.
-- Network errors, 429 and 5xx retry at the poll interval. Other HTTP errors do not.
-- Results stay in memory until accepted. Pending reports block new claims.
+- Network errors, 429 and 5xx retry at the poll interval, with a 10-minute total deadline per controller operation (registration, claims, output, final reports/recovery, and heartbeat). The deadline includes HTTP requests and retry waits. Expiry disables all remote work until restart; local jobs continue. Other HTTP errors do not retry.
+- Pending reports block new work until accepted or remote work is disabled. Results abandoned after authentication rejection or retry-deadline expiry are not retried. Shutdown retains its separate 10-second reporting deadline and does not trigger remote disablement.
 - Restart marks an existing assignment failed with an unknown outcome. It does not replay it. See [deployment limits](../controller/README.md#deployment-and-limits).
 
 ## Local fallback queue
@@ -92,7 +92,7 @@ The CLI connects to `<state-dir>/local/control.sock`. The socket is `0600`; its 
 
 `jobd --local job remove --all` asks for confirmation before atomically deleting queued and finished local records. The local socket endpoint is `POST /jobs/remove-all`; it returns `removed` and `kept_running` counts. Running jobs and their cancellation state remain intact, output files are kept, and job IDs are never reset.
 
-Controller jobs take priority. After the first failed controller job (including cancellation), the worker stops claiming controller jobs until it restarts. Heartbeats and local jobs continue; the failed result must still be accepted before more work runs. Local failures do not pause controller claims. Otherwise, local work starts immediately after a successful empty controller claim. Request failures block local work until a claim succeeds. Without a key, local work runs directly without controller requests.
+Controller jobs take priority. After the first failed controller job (including cancellation), the worker reports the result, then disables all remote requests, including heartbeats, until restart. If reporting reaches its retry deadline or authentication is rejected, remote requests are disabled without an accepted result. Local jobs continue afterward. Local failures do not disable remote work. Otherwise, local work starts immediately after a successful empty controller claim. Request retries block local work until they succeed or authentication rejection or the 10-minute retry deadline disables remote work. Without a key, local work runs directly without controller requests.
 
 A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution and cancellation match controller jobs.
 
