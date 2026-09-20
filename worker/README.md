@@ -96,6 +96,8 @@ Controller jobs take priority. After the first failed controller job (including 
 
 A local job runs to completion before the next controller claim. Heartbeats continue. Results stay local. Execution and cancellation match controller jobs.
 
+The local socket supports `POST /jobs/retry` and `/jobs/urgent` with `{"ids":["local-1","local-2"]}` (1–100 IDs). Each target is processed separately; invalid targets are returned in `failed` as `{id,error}`, while successful IDs are returned in `succeeded`. Duplicate IDs are processed once. Successful targets retain argument order (retry appends; urgent prepends). HTTP 200 carries per-target results even if every target fails. Malformed payloads return 400 before processing. Single-target endpoints and `/jobs/retry-all` remain supported.
+
 | `JOBD_LOCAL_PERSIST` | Storage | On restart |
 | --- | --- | --- |
 | `false` or `0` (default) | SQLite `:memory:` | Queue/history lost; IDs may repeat |
