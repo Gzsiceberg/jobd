@@ -310,7 +310,8 @@ export class Scheduler {
     return this.storage.sql
       .exec<WorkerRow>('SELECT * FROM workers ORDER BY hostname, worker_id')
       .toArray()
-      .map((worker) => this.worker(worker.worker_id));
+      .map((worker) => this.worker(worker.worker_id))
+      .filter((worker) => worker.status !== 'offline');
   }
 
   register(workerId: string, hostname: string): Worker {

@@ -1,7 +1,7 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createQueueApi } from '../src/api/queues';
 import { issueWorkerToken } from '../src/api/worker-tokens';
-import { Scheduler } from '../src/jobs/scheduler';
+import { Scheduler, workerTimeoutMs } from '../src/jobs/scheduler';
 import { schedulerStorage } from './storage';
 
 it('records verified expiry, refreshes it, persists it, and restricts listing to admins', async () => {
@@ -71,6 +71,46 @@ it('records verified expiry, refreshes it, persists it, and restricts listing to
       { worker_id: 'w2', hostname: 'other', token_expired_time: null },
     ],
   });
+});
+
+it('lists only online workers, including idle, busy and paused workers', async () => {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+  try {
+    const { api, scheduler, storage } = schedulerStorage();
+    for (const id of ['idle', 'busy', 'paused', 'offline', 'boundary']) {
+      scheduler.register(id, id);
+    }
+    scheduler.submit(['echo', 'test']);
+    scheduler.claim('busy');
+    scheduler.setWorkerPaused('paused', true);
+    for (const [id, age] of [
+      ['idle', workerTimeoutMs - 1],
+      ['offline', workerTimeoutMs + 1],
+      ['boundary', workerTimeoutMs],
+    ] as const) {
+      storage.sql.exec(
+        'UPDATE workers SET last_heartbeat = ? WHERE worker_id = ?',
+        new Date(now - age).toISOString(),
+        id,
+      );
+    }
+    const response = await api.request('/workers');
+    expect(response.status).toBe(200);
+    const body = await response.json<{ workers: { worker_id: string }[] }>();
+    expect(body.workers.map((worker) => worker.worker_id)).toEqual([
+      'busy',
+      'idle',
+      'paused',
+    ]);
+    expect(scheduler.worker('offline').status).toBe('offline');
+    scheduler.heartbeat('offline');
+    expect(scheduler.listWorkers().map((worker) => worker.worker_id)).toContain(
+      'offline',
+    );
+  } finally {
+    clock.mockRestore();
+  }
 });
 
 it('migrates existing workers without losing them', () => {
