@@ -12,7 +12,7 @@ trap 'rm -rf "$stage"' 0
 trap 'exit 130' INT
 trap 'exit 143' TERM
 for arch in amd64 arm64; do
-    (cd "$root/cli" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags='-s -w' -o "$stage/jobd" .)
+    (cd "$root/cli" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w -X main.version=$version" -o "$stage/jobd" .)
     (cd "$root/worker" && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags='-s -w' -o "$stage/jobd-worker" .)
     cp "$root/uninstall.sh" "$stage/jobd-uninstall"
     cp "$root/LICENSE" "$stage/LICENSE"

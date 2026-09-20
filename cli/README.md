@@ -4,6 +4,8 @@
 
 A tsp-style client for submitting jobs, with Cobra subcommands for management.
 
+Run `jobd --version` to print the installed CLI version. Packaged releases show their release tag; local builds show `dev`.
+
 ## Source layout
 
 The CLI remains a single Go package, organized by responsibility:

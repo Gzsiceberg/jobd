@@ -9,7 +9,7 @@ import (
 // Only known command roots enter Cobra. Everything else retains direct argv
 // submission; in particular, -- bypasses management dispatch entirely.
 func isManagementCommand(root *cobra.Command, name string) bool {
-	if name == "-h" || name == "--help" || name == "__complete" || name == "__completeNoDesc" {
+	if name == "--version" || name == "-h" || name == "--help" || name == "__complete" || name == "__completeNoDesc" {
 		return true
 	}
 	for _, command := range root.Commands() {

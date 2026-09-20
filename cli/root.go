@@ -28,6 +28,7 @@ Shortcuts:
   -u [ID...]       Move queued jobs first in argument order (last added by default)
   -U ID1 ID2       Swap two queued jobs
   -h               Show help
+  --version        Show version
 Use -- to force submission of a reserved name (env, worker, job, auth, help, completion)
 or a command beginning with a dash. Commands run directly, not via a shell.
 Defaults: JOBD_CONTROLLER=https://jobd-controller.aflashsheng.workers.dev, JOBD_QUEUE=default.
@@ -56,6 +57,7 @@ func env(key, fallback string) string {
 func newManagementCommand(options *cliOptions, input io.Reader, out, diagnostic io.Writer) *cobra.Command {
 	root := &cobra.Command{
 		Use: "jobd [COMMAND [ARGS...]]", Short: "Submit jobs and manage jobd", Long: help,
+		Version:       version,
 		SilenceErrors: true, SilenceUsage: true,
 	}
 	root.SetIn(input)
