@@ -113,7 +113,17 @@ export function createQueueApi(
     }
     const url = new URL(c.req.url);
     url.pathname = '/' + url.pathname.split('/').slice(3).join('/');
-    return forward(name.data, new Request(url, c.req.raw));
+    const request = new Request(url, c.req.raw);
+    // Never trust client-supplied authentication metadata.
+    request.headers.delete('X-Jobd-Token-Expires-At');
+    const claims = c.get('workerClaims');
+    if (claims) {
+      request.headers.set(
+        'X-Jobd-Token-Expires-At',
+        new Date(claims.exp * 1000).toISOString(),
+      );
+    }
+    return forward(name.data, request);
   });
   app.notFound((c) =>
     c.json(

@@ -149,6 +149,7 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
     );
   });
   app.get('/jobs/:id', (c) => c.json(scheduler.job(c.req.param('id'))));
+  app.get('/workers', (c) => c.json({ workers: scheduler.listWorkers() }));
   app.post('/workers/register', async (c) => {
     const body = registration.parse(await c.req.json<unknown>());
     return c.json(scheduler.register(body.worker_id, body.hostname));
@@ -178,7 +179,13 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
   }
   app.post('/workers/:id/heartbeat', async (c) => {
     z.object({}).parse(await c.req.json<unknown>());
-    return c.json(scheduler.heartbeat(c.req.param('id')));
+    // This header is overwritten by the authenticated queue gateway.
+    return c.json(
+      scheduler.heartbeat(
+        c.req.param('id'),
+        c.req.header('X-Jobd-Token-Expires-At'),
+      ),
+    );
   });
   app.post('/workers/:id/claim', async (c) => {
     z.object({}).parse(await c.req.json<unknown>());

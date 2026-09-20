@@ -23,6 +23,19 @@ func newWorkerCommand(options *cliOptions) *cobra.Command {
 			},
 		})
 	}
+	group.AddCommand(&cobra.Command{
+		Use: "list", Short: "List remote workers and token time remaining", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if options.local {
+				return fmt.Errorf("worker list only lists remote workers")
+			}
+			c, err := newClient(options.address, options.queue)
+			if err != nil {
+				return err
+			}
+			return listWorkers(c, cmd.OutOrStdout())
+		},
+	})
 	for _, action := range []string{"pause", "resume"} {
 		group.AddCommand(&cobra.Command{
 			Use:   action + " WORKER_ID_OR_PREFIX [WORKER_ID_OR_PREFIX ...]",

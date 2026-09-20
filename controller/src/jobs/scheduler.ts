@@ -59,6 +59,11 @@ export class Scheduler {
     const columns = this.storage.sql
       .exec<{ name: string }>('PRAGMA table_info(workers)')
       .toArray();
+    if (!columns.some((column) => column.name === 'token_expired_time')) {
+      this.storage.sql.exec(
+        'ALTER TABLE workers ADD COLUMN token_expired_time TEXT',
+      );
+    }
     if (!columns.some((column) => column.name === 'paused')) {
       this.storage.sql.exec(
         'ALTER TABLE workers ADD COLUMN paused INTEGER NOT NULL DEFAULT 0 CHECK (paused IN (0, 1))',
@@ -188,17 +193,20 @@ export class Scheduler {
     return this.storage.transactionSync(() => {
       if (id !== undefined && this.job(id).status !== 'failed')
         throw new ApiError(409, 'Only failed jobs can be retried');
-      const jobs = this.storage.sql.exec<{ id: string }>(
-        `SELECT id FROM jobs WHERE status = 'failed'${id === undefined ? '' : ' AND id = ?'} ORDER BY queue_position, sequence`,
-        ...(id === undefined ? [] : [id]),
-      ).toArray();
+      const jobs = this.storage.sql
+        .exec<{ id: string }>(
+          `SELECT id FROM jobs WHERE status = 'failed'${id === undefined ? '' : ' AND id = ?'} ORDER BY queue_position, sequence`,
+          ...(id === undefined ? [] : [id]),
+        )
+        .toArray();
       for (const job of jobs) {
         this.storage.sql.exec(
           `UPDATE jobs SET status = 'queued', started_at = NULL, finished_at = NULL,
            worker_id = NULL, output_path = NULL, exit_code = NULL,
            error = NULL, cancel_requested = 0,
            queue_position = (SELECT COALESCE(MAX(queue_position), 0) + 1 FROM jobs)
-           WHERE id = ?`, job.id,
+           WHERE id = ?`,
+          job.id,
         );
       }
       return { retried: jobs.length };
@@ -298,6 +306,13 @@ export class Scheduler {
     });
   }
 
+  listWorkers(): Worker[] {
+    return this.storage.sql
+      .exec<WorkerRow>('SELECT * FROM workers ORDER BY hostname, worker_id')
+      .toArray()
+      .map((worker) => this.worker(worker.worker_id));
+  }
+
   register(workerId: string, hostname: string): Worker {
     // Registration retries preserve any existing assignment.
     this.storage.sql.exec(
@@ -312,11 +327,16 @@ export class Scheduler {
     return this.worker(workerId);
   }
 
-  heartbeat(id: string): Worker & { cancel_job_id: string | null } {
+  heartbeat(
+    id: string,
+    tokenExpiry?: string,
+  ): Worker & { cancel_job_id: string | null } {
     return this.storage.transactionSync(() => {
       this.storage.sql.exec(
-        'UPDATE workers SET last_heartbeat = ? WHERE worker_id = ?',
+        `UPDATE workers SET last_heartbeat = ?,
+        token_expired_time = COALESCE(?, token_expired_time) WHERE worker_id = ?`,
         new Date().toISOString(),
+        tokenExpiry ?? null,
         id,
       );
       const worker = this.worker(id);

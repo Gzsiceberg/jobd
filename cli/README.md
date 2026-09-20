@@ -79,6 +79,7 @@ Install `jobd-worker` beside `jobd` or in `PATH`. Remote queue commands never au
 ## Pause remote assignments
 
 ```sh
+jobd worker list                    # worker name and token time remaining (admin only)
 jobd worker pause a1b2c3d4
 jobd worker resume a1b2c3d4
 jobd worker pause a1b2c3d4 e5f6a7b8
@@ -108,6 +109,8 @@ jobd -C                    # clear finished records
 ```
 
 Brackets mark optional IDs; omit the brackets when typing. Defaults select remaining jobs.
+
+`jobd worker list` lists all registered workers in the selected queue, including offline workers. It shows a unique `WORKER_ID` prefix (as in `jobd -l`), hostname as `WORKER_NAME`, and a relative duration under `TOKEN_EXPIRED_TIME` (for example, `1h2m0s remaining` or `expired 5m0s ago`). Expiry is unknown until the controller observes a successful token-authenticated heartbeat. This command requires `JOBD_MASTER_KEY` and does not start a local worker.
 
 Controller job IDs are numeric and per queue. They start at 1 and are not reused after deletion. JSON uses decimal strings. Worker IDs are UUIDs.
 
