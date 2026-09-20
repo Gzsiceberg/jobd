@@ -1,12 +1,14 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { ApiError } from './errors';
+import { batch } from './batch';
 import { drainBody } from './drain-body';
 import type { Scheduler } from '../jobs/scheduler';
 import type { QueueSecrets } from '../secrets';
 
 const text = z.string().trim().min(1).max(4096);
 const owner = z.object({ worker_id: text });
+const targets = z.object({ ids: z.array(text).min(1).max(100) });
 const submission = z.object({
   command: z
     .array(z.string().max(4096))
@@ -95,7 +97,31 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
   });
   app.post('/jobs/remove-all', (c) => c.json(scheduler.removeAll()));
   app.post('/jobs/retry-all', (c) => c.json(scheduler.retry()));
-  app.post('/jobs/:id/retry', (c) => c.json(scheduler.retry(c.req.param('id'))));
+  app.post('/jobs/retry', async (c) => {
+    const { ids } = targets.parse(await c.req.json<unknown>());
+    return c.json(
+      batch(ids, (id) => {
+        scheduler.retry(id);
+        return id;
+      }),
+    );
+  });
+  app.post('/jobs/urgent', async (c) => {
+    const { ids } = targets.parse(await c.req.json<unknown>());
+    return c.json(
+      batch(
+        ids,
+        (id) => {
+          scheduler.reorder(id);
+          return id;
+        },
+        true,
+      ),
+    );
+  });
+  app.post('/jobs/:id/retry', (c) =>
+    c.json(scheduler.retry(c.req.param('id'))),
+  );
   app.post('/jobs/swap', async (c) => {
     const body = z
       .object({ first: text, second: text })
@@ -128,6 +154,19 @@ export function createApi(scheduler: Scheduler, secrets: QueueSecrets) {
     return c.json(scheduler.register(body.worker_id, body.hostname));
   });
   for (const action of ['pause', 'resume'] as const) {
+    app.post(`/workers/${action}`, async (c) => {
+      const { ids } = targets.parse(await c.req.json<unknown>());
+      const result = batch(ids, (id) =>
+        scheduler.setWorkerPaused(id, action === 'pause'),
+      );
+      // Different prefixes may resolve to the same worker.
+      result.succeeded = [
+        ...new Map(
+          result.succeeded.map((worker) => [worker.worker_id, worker]),
+        ).values(),
+      ];
+      return c.json(result);
+    });
     app.post(`/workers/:id/${action}`, (c) =>
       c.json(
         scheduler.setWorkerPaused(

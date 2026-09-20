@@ -12,7 +12,7 @@ Queue names match `[a-z0-9][a-z0-9_-]{0,62}`. First use creates the queue. Names
 
 Each worker serves one queue (`--queue` or `JOBD_QUEUE`; default `default`). Use separate daemons and state directories for more queues. There is no queue registry or cross-queue claiming.
 
-Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all` (under the queue prefix, requiring the master key). Both return `{ "retried": N }`. Retries preserve IDs, commands and creation timestamps, clear execution details and cancellation flags, and append jobs behind queued work. Bulk retries are atomic and affect only failed jobs; single-job retries reject other states with 409. Log files are not deleted. Retrying does not clear a worker's failure-triggered pause (restart that worker) or an administrative pause (`jobd worker resume ID`).
+Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all` (under the queue prefix, requiring the master key). Both return `{ "retried": N }`. Retries preserve IDs, commands and creation timestamps, clear execution details and cancellation flags, and append jobs behind queued work. `retry-all` is atomic and affects only failed jobs; single-job retries reject other states with 409. Log files are not deleted. Retrying does not clear a worker's failure-triggered pause (restart that worker) or an administrative pause (`jobd worker resume ID`).
 
 | Method | Path                       | Body / notes                                                        |
 | ------ | -------------------------- | ------------------------------------------------------------------- |
@@ -37,6 +37,12 @@ Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all
 - Heartbeats return `cancel_job_id`, or `null`. Jobs expose `cancel_requested` as 0 or 1. A request does not mean the process stopped.
 - Worker status comes from assignments, not heartbeat payloads. Workers whose last heartbeat is at least two minutes old are reported as `offline`.
 - `POST /jobs/remove-all` with `{}` atomically deletes queued and finished records and returns `{"removed":N,"kept_running":N}`. Healthy running jobs and their assignments, queue secrets, and job ID sequences are preserved; stale assignments are expired first. Output files are never deleted. The CLI requires typed confirmation before calling this authenticated endpoint; direct API callers are responsible for their own confirmation. Deletion uses the jobs present at execution time, not a snapshot taken at the prompt.
+
+### Batch operations
+
+`POST /jobs/retry`, `/jobs/urgent`, `/workers/pause`, and `/workers/resume` accept `{"ids":["ID1","ID2"]}` (1–100 nonempty IDs). These require the master key, like the corresponding single-target mutations. Valid requests return HTTP 200 with `{"succeeded":[...],"failed":[{"id":"ID","error":"reason"}]}`, including when all targets fail. Job successes are IDs; worker successes are full worker records. Malformed payloads return 400 before any mutation.
+
+Each target has its own transaction: invalid targets do not block others or roll back successes. Repeated IDs are processed once. Retry appends successful jobs in argument order; urgent puts them at the front in argument order. Pause/resume resolve full IDs or unique prefixes and return each successful worker once. Existing single-target and retry-all endpoints remain supported. A batch response lost in transit can leave partial outcomes unknown; do not automatically replay retry batches.
 
 ### Pause remote assignments
 
