@@ -64,7 +64,7 @@ See [cancellation](../worker/README.md#remote-cancellation).
 
 Each queue stores jobs and workers separately. Claims follow FIFO unless reordered.
 
-Job IDs start at 1 per queue. They are decimal strings in JSON and never reused after deletion. Worker IDs are UUIDs.
+Job IDs start at 1 per queue and are decimal strings in JSON. Clearing finished records (`POST /queues/:name/jobs/clear`, or `jobd -C`) resets the next ID to 1 only if no jobs remain. Queued or running jobs prevent a reset. Other deletion operations do not reset IDs. After a reset, old saved IDs can refer to new jobs. Worker IDs are UUIDs.
 
 New queues get the current schema. Existing queues must already use numeric job IDs. The queue environment table is created automatically; there are no job-schema migrations.
 

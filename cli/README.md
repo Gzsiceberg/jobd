@@ -114,7 +114,7 @@ Brackets mark optional IDs; omit the brackets when typing. Defaults select remai
 
 `jobd worker list` lists only online workers in the selected queue (last heartbeat less than two minutes ago), including idle, busy, and paused workers. It shows a unique `WORKER_ID` prefix (as in `jobd -l`), hostname as `WORKER_NAME`, and a relative duration under `TOKEN_EXPIRED_TIME` (for example, `1h2m0s remaining` or `expired 5m0s ago`). Expiry is unknown until the controller observes a successful token-authenticated heartbeat. This command requires `JOBD_MASTER_KEY` and does not start a local worker.
 
-Controller job IDs are numeric and per queue. They start at 1 and are not reused after deletion. JSON uses decimal strings. Worker IDs are UUIDs.
+Controller job IDs are numeric and per queue. They start at 1. `jobd -C` (or `jobd job clear`) deletes finished records and resets the next controller job ID to 1 only when no jobs remain; queued/running jobs prevent a reset. Other deletion operations do not reset IDs. After a reset, old saved IDs can refer to new jobs. Local queue IDs are never reset. JSON uses decimal strings. Worker IDs are UUIDs.
 
 Commands are argv arrays. Use `sh -c` for shell syntax. Full tsp flag compatibility is not supported.
 

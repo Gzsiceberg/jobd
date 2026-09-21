@@ -159,9 +159,14 @@ export class Scheduler {
 
   clear(): void {
     this.expireWorkers();
-    this.storage.sql.exec(
-      "DELETE FROM jobs WHERE status IN ('succeeded', 'failed')",
-    );
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        "DELETE FROM jobs WHERE status IN ('succeeded', 'failed')",
+      );
+      this.storage.sql.exec(
+        "DELETE FROM sqlite_sequence WHERE name = 'jobs' AND NOT EXISTS (SELECT 1 FROM jobs)",
+      );
+    });
   }
 
   removeAll(): { removed: number; kept_running: number } {
