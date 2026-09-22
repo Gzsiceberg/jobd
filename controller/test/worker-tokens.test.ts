@@ -179,6 +179,7 @@ it('allows only job reads and worker lifecycle, scoped to one queue', async () =
     ['POST', '/jobs'],
     ['POST', '/jobs/clear'],
     ['POST', '/jobs/remove-all'],
+    ['POST', '/jobs/remove'],
     ['POST', '/jobs/swap'],
     ['DELETE', '/jobs/1'],
     ['POST', '/jobs/1/cancel'],

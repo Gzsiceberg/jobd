@@ -130,7 +130,7 @@ func (q *localQueue) routes() *http.ServeMux {
 	register("POST /jobs/{id}/urgent", func(r *http.Request) (any, error) { return nil, q.reorder(r.PathValue("id"), "") })
 	register("POST /jobs/clear", func(r *http.Request) (any, error) { return nil, q.clear() })
 	register("POST /jobs/remove-all", func(r *http.Request) (any, error) { return q.removeAll() })
-	for _, action := range []string{"retry", "urgent"} {
+	for _, action := range []string{"retry", "urgent", "remove"} {
 		register("POST /jobs/"+action, func(r *http.Request) (any, error) {
 			var body struct {
 				IDs []string `json:"ids"`
@@ -138,7 +138,7 @@ func (q *localQueue) routes() *http.ServeMux {
 			if err := decodeLocalBody(r, &body); err != nil {
 				return nil, err
 			}
-			return q.batchJobs(body.IDs, action == "urgent")
+			return q.batchJobs(body.IDs, action)
 		})
 	}
 	register("POST /jobs/retry-all", func(r *http.Request) (any, error) { return q.retry("") })

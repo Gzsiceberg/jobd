@@ -17,7 +17,8 @@ type batchResult struct {
 }
 
 // Each operation owns its transaction; one invalid target cannot block others.
-func (q *localQueue) batchJobs(ids []string, urgent bool) (batchResult, error) {
+func (q *localQueue) batchJobs(ids []string, action string) (batchResult, error) {
+	urgent := action == "urgent"
 	result := batchResult{Succeeded: []string{}, Failed: []batchFailure{}}
 	if len(ids) == 0 || len(ids) > 100 {
 		return result, fmt.Errorf("provide between 1 and 100 job IDs")
@@ -39,10 +40,15 @@ func (q *localQueue) batchJobs(ids []string, urgent bool) (batchResult, error) {
 	}
 	for _, id := range unique {
 		var err error
-		if urgent {
+		switch action {
+		case "urgent":
 			err = q.reorder(id, "")
-		} else {
+		case "retry":
 			_, err = q.retry(id)
+		case "remove":
+			err = q.remove(id)
+		default:
+			return result, fmt.Errorf("unknown batch action %q", action)
 		}
 		if err != nil {
 			result.Failed = append(result.Failed, batchFailure{ID: id, Error: err.Error()})

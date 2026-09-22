@@ -73,7 +73,7 @@ func TestLocalJobBatches(t *testing.T) {
 }
 
 func TestLocalBatchValidation(t *testing.T) {
-	for _, action := range []string{"urgent", "retry"} {
+	for _, action := range []string{"urgent", "retry", "remove"} {
 		q := testLocalQueue(t)
 		job, err := q.submit([]string{"job"})
 		if err != nil {
@@ -116,7 +116,7 @@ func TestLocalBatchValidation(t *testing.T) {
 }
 
 func TestLocalBatchAllTargetsFailed(t *testing.T) {
-	for _, action := range []string{"urgent", "retry"} {
+	for _, action := range []string{"urgent", "retry", "remove"} {
 		q := testLocalQueue(t)
 		response := httptest.NewRecorder()
 		q.routes().ServeHTTP(response, httptest.NewRequest("POST", "/jobs/"+action, strings.NewReader(`{"ids":["local-999","local-998","local-999"]}`)))

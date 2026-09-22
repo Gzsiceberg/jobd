@@ -186,7 +186,7 @@ func TestErrorsAndNoMutationRetry(t *testing.T) {
 	if calls != 1 {
 		t.Fatal(calls)
 	}
-	for _, args := range [][]string{{"-U", "a"}, {"-C", "a"}, {"-r", "a", "b"}, {"--"}, {"-bad"}, {"--controller"}} {
+	for _, args := range [][]string{{"-U", "a"}, {"-C", "a"}, {"-k", "a", "b"}, {"--"}, {"-bad"}, {"--controller"}} {
 		if err := run(args, strings.NewReader(""), &out, &out); err == nil {
 			t.Errorf("accepted %v", args)
 		}

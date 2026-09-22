@@ -40,9 +40,9 @@ Failed jobs can be requeued with `POST /jobs/:id/retry` or `POST /jobs/retry-all
 
 ### Batch operations
 
-`POST /jobs/retry`, `/jobs/urgent`, `/workers/pause`, and `/workers/resume` accept `{"ids":["ID1","ID2"]}` (1–100 nonempty IDs). These require the master key, like the corresponding single-target mutations. Valid requests return HTTP 200 with `{"succeeded":[...],"failed":[{"id":"ID","error":"reason"}]}`, including when all targets fail. Job successes are IDs; worker successes are full worker records. Malformed payloads return 400 before any mutation.
+`POST /jobs/remove`, `/jobs/retry`, `/jobs/urgent`, `/workers/pause`, and `/workers/resume` accept `{"ids":["ID1","ID2"]}` (1–100 nonempty IDs). These require the master key, like the corresponding single-target mutations. Valid requests return HTTP 200 with `{"succeeded":[...],"failed":[{"id":"ID","error":"reason"}]}`, including when all targets fail. Job successes are IDs; worker successes are full worker records. Malformed payloads return 400 before any mutation.
 
-Each target has its own transaction: invalid targets do not block others or roll back successes. Repeated IDs are processed once. Retry appends successful jobs in argument order; urgent puts them at the front in argument order. Pause/resume resolve full IDs or unique prefixes and return each successful worker once. Existing single-target and retry-all endpoints remain supported. A batch response lost in transit can leave partial outcomes unknown; do not automatically replay retry batches.
+Each target has its own transaction: invalid targets do not block others or roll back successes. Repeated IDs are processed once. Remove deletes queued and finished records, preserves running jobs and output files, and never resets the job ID sequence. Retry appends successful jobs in argument order; urgent puts them at the front in argument order. Pause/resume resolve full IDs or unique prefixes and return each successful worker once. Existing single-target and retry-all endpoints remain supported. A batch response lost in transit can leave partial outcomes unknown; do not automatically replay retry batches.
 
 ### Pause remote assignments
 

@@ -103,7 +103,7 @@ jobd                       # list; same as -l
 jobd echo hello            # submit argv; print job ID
 jobd sh -c 'echo hi; sleep 60'
 jobd -o [ID]               # output path; default: last started
-jobd -r [ID]               # remove queued/finished job; default: last added
+jobd -r [ID...]            # remove queued/finished jobs; default: last added
 jobd -k [ID]               # request cancellation; default: last started
 jobd -u [ID...]            # move queued jobs first in argument order; default: last added
 jobd -U ID1 ID2            # swap queued jobs
@@ -139,7 +139,7 @@ All job operations also have explicit forms that share the same implementation a
 | `jobd -l` | `jobd job list` |
 | `jobd -C` | `jobd job clear` |
 | `jobd -o [ID]` | `jobd job output [ID]` |
-| `jobd -r [ID]` | `jobd job remove [ID]` |
+| `jobd -r [ID...]` | `jobd job remove [ID...]` |
 | `jobd -k [ID]` | `jobd job cancel [ID]` |
 | `jobd -u [ID...]` | `jobd job urgent [ID...]` |
 | `jobd -U ID1 ID2` | `jobd job swap ID1 ID2` |
@@ -164,6 +164,8 @@ jobd --local job remove --all
 The command displays the target and asks you to type `yes` and press Enter. Nothing is removed on an empty answer, mismatch, or input error. There is no `--yes` bypass, and `--all` cannot be combined with a job ID. Without either `JOBD_MASTER_KEY` or `JOBD_WORKER_TOKEN`, the target is the local queue, as with other job actions; the prompt explicitly identifies it.
 
 This atomically removes **queued and finished** records in the selected queue. Running jobs are kept and counted in the result. Secrets, worker registrations, output files, and job ID sequences are preserved. The deletion applies to jobs present when the operation executes, including submissions made while the prompt was open. Jobs claimed before deletion are kept as running. No requests or worker startup occur until confirmation; failed requests are not retried automatically.
+
+To remove specific jobs, use `jobd -r 1 2 3` or `jobd job remove 1 2 3` (local IDs work too). Multiple IDs are sent in one batch request (up to 100 IDs), with duplicate IDs processed once by the server. IDs are processed in order; running or missing jobs are reported as failures without preventing other deletions. Any failure returns a nonzero exit status. Removal preserves the job ID sequence even when the queue becomes empty; IDs are not reset or reused. With no IDs, removal still targets the last-added job.
 
 `jobd job clear` / `jobd -C` still removes only finished records without this prompt.
 

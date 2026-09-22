@@ -17,7 +17,7 @@ func newJobCommand(options *cliOptions) *cobra.Command {
 		{"list", "-l", "List jobs", cobra.NoArgs},
 		{"clear", "-C", "Clear finished records; keep log files", cobra.NoArgs},
 		{"output [ID]", "-o", "Print output path (last run by default)", cobra.MaximumNArgs(1)},
-		{"remove [ID]", "-r", "Remove a non-running job (last added by default)", cobra.MaximumNArgs(1)},
+		{"remove [ID...]", "-r", "Remove non-running jobs (last added by default)", cobra.ArbitraryArgs},
 		{"cancel [ID]", "-k", "Request cancellation (last run by default)", cobra.MaximumNArgs(1)},
 		{"urgent [ID...]", "-u", "Move queued jobs first in argument order (last added by default)", cobra.ArbitraryArgs},
 		{"swap ID1 ID2", "-U", "Swap two queued jobs", cobra.ExactArgs(2)},

@@ -93,69 +93,75 @@ it.each(['pause', 'resume'])(
   },
 );
 
-it.each(['/jobs/retry', '/jobs/urgent', '/workers/pause', '/workers/resume'])(
-  'validates %s batches before mutations',
-  async (path) => {
-    const { scheduler: s, api } = schedulerStorage();
-    s.register('worker', 'host');
-    const job = s.submit(['job']);
-    if (path === '/jobs/retry') {
-      s.claim('worker');
-      s.finish(job.id, 'worker', false, 1, 'failed');
-    }
-    if (path === '/workers/resume') s.setWorkerPaused('worker', true);
-    const id = path.startsWith('/workers/') ? 'worker' : job.id;
-    const beforeJob = s.job(job.id);
-    const beforeWorker = s.worker('worker');
-    for (const body of [
-      {},
-      { ids: [] },
-      { ids: [''] },
-      { ids: [1] },
-      { ids: [id, ''] },
-      { ids: [id, '   '] },
-      { ids: [id, 1] },
-      { ids: [id, 'x'.repeat(4097)] },
-      { ids: Array(101).fill(id) },
-    ]) {
-      expect(
-        (
-          await api.request(path, {
-            method: 'POST',
-            body: JSON.stringify(body),
-          })
-        ).status,
-      ).toBe(400);
-      expect(s.job(job.id)).toEqual(beforeJob);
-      expect(s.worker('worker')).toEqual(beforeWorker);
-    }
-    const response = await api.request(path, {
-      method: 'POST',
-      body: JSON.stringify({ ids: Array(100).fill(id) }),
-    });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      succeeded: [expect.anything()],
-      failed: [],
-    });
-  },
-);
+it.each([
+  '/jobs/remove',
+  '/jobs/retry',
+  '/jobs/urgent',
+  '/workers/pause',
+  '/workers/resume',
+])('validates %s batches before mutations', async (path) => {
+  const { scheduler: s, api } = schedulerStorage();
+  s.register('worker', 'host');
+  const job = s.submit(['job']);
+  if (path === '/jobs/retry') {
+    s.claim('worker');
+    s.finish(job.id, 'worker', false, 1, 'failed');
+  }
+  if (path === '/workers/resume') s.setWorkerPaused('worker', true);
+  const id = path.startsWith('/workers/') ? 'worker' : job.id;
+  const beforeJob = s.job(job.id);
+  const beforeWorker = s.worker('worker');
+  for (const body of [
+    {},
+    { ids: [] },
+    { ids: [''] },
+    { ids: [1] },
+    { ids: [id, ''] },
+    { ids: [id, '   '] },
+    { ids: [id, 1] },
+    { ids: [id, 'x'.repeat(4097)] },
+    { ids: Array(101).fill(id) },
+  ]) {
+    expect(
+      (
+        await api.request(path, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        })
+      ).status,
+    ).toBe(400);
+    expect(s.job(job.id)).toEqual(beforeJob);
+    expect(s.worker('worker')).toEqual(beforeWorker);
+  }
+  const response = await api.request(path, {
+    method: 'POST',
+    body: JSON.stringify({ ids: Array(100).fill(id) }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    succeeded: [expect.anything()],
+    failed: [],
+  });
+});
 
-it.each(['/jobs/retry', '/jobs/urgent', '/workers/pause', '/workers/resume'])(
-  '%s returns per-target failures when every target fails',
-  async (path) => {
-    const { api } = schedulerStorage();
-    const response = await api.request(path, {
-      method: 'POST',
-      body: JSON.stringify({ ids: ['missing-a', 'missing-b', 'missing-a'] }),
-    });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      succeeded: [],
-      failed: [
-        { id: 'missing-a', error: expect.any(String) },
-        { id: 'missing-b', error: expect.any(String) },
-      ],
-    });
-  },
-);
+it.each([
+  '/jobs/remove',
+  '/jobs/retry',
+  '/jobs/urgent',
+  '/workers/pause',
+  '/workers/resume',
+])('%s returns per-target failures when every target fails', async (path) => {
+  const { api } = schedulerStorage();
+  const response = await api.request(path, {
+    method: 'POST',
+    body: JSON.stringify({ ids: ['missing-a', 'missing-b', 'missing-a'] }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    succeeded: [],
+    failed: [
+      { id: 'missing-a', error: expect.any(String) },
+      { id: 'missing-b', error: expect.any(String) },
+    ],
+  });
+});

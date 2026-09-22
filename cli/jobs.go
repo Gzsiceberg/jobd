@@ -107,9 +107,9 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		}
 	case "-retry":
 		// No IDs means --all; Cobra validates the explicit command.
-	case "-u":
+	case "-u", "-r":
 		// Any number of IDs; no IDs selects the last-added job.
-	case "-o", "-r", "-k":
+	case "-o", "-k":
 		if len(args) > 1 {
 			return fmt.Errorf("%s takes at most one job ID", action)
 		}
@@ -188,7 +188,17 @@ func runJobs(c *client, action string, args []string, out, diagnostic io.Writer)
 		_, err := fmt.Fprintln(out, "Cancellation requested for", selected.ID)
 		return err
 	case "-r":
-		return c.request("DELETE", path, nil, nil)
+		if len(args) <= 1 {
+			return c.request("DELETE", path, nil, nil)
+		}
+		var result batchResult[string]
+		if err := c.request("POST", "/jobs/remove", map[string]any{"ids": args}, &result); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "Removed %d job(s).\n", len(result.Succeeded)); err != nil {
+			return err
+		}
+		return result.err("remove")
 	case "-u":
 		ids := args
 		if len(ids) == 0 {

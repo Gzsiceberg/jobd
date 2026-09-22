@@ -23,7 +23,7 @@ Shortcuts:
   COMMAND [ARGS...] Submit a command and print its job ID
   -C               Clear finished job records (keep log files)
   -o [ID]          Print output path on executing host (last run by default)
-  -r [ID]          Remove a non-running job (last added by default)
+  -r [ID...]       Remove non-running jobs (last added by default)
   -k [ID]          Request cancellation of a running job (last run by default)
   -u [ID...]       Move queued jobs first in argument order (last added by default)
   -U ID1 ID2       Swap two queued jobs
