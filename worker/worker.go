@@ -102,7 +102,7 @@ func (w *Worker) runJob(ctx context.Context, job Job, backend jobBackend) error 
 	if err := w.reportResult(ctx, job.ID, result, backend); err != nil {
 		return err
 	}
-	if w.client != nil && backend == w.client && (result.ExitCode == nil || *result.ExitCode != 0 || result.Error != "") {
+	if w.client != nil && backend == w.client && !result.Cancelled && (result.ExitCode == nil || *result.ExitCode != 0 || result.Error != "") {
 		w.client.disableRemote(fmt.Errorf("remote job %s failed", job.ID))
 	}
 	slog.Info("Job finished", "job", job.ID, "exit_code", result.ExitCode, "error", result.Error, "output", result.OutputPath)

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -71,6 +73,90 @@ func TestRemoteFailureReportsThenDisablesRemoteButRunsLocalJobs(t *testing.T) {
 				t.Fatalf("heartbeat after failure: %v", err)
 			}
 		})
+	}
+}
+
+func TestCancellationContinuesRemoteClaims(t *testing.T) {
+	for _, preCancelled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("before-start=%v", preCancelled), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			marker := filepath.Join(t.TempDir(), "started")
+			var claims, reports atomic.Int32
+			var completed atomic.Bool
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/claim"):
+					switch claims.Add(1) {
+					case 1:
+						job := Job{ID: "cancelled", Command: []string{"sh", "-c", `echo ready > "$1"; exec sleep 60`, "sh", marker}}
+						if preCancelled {
+							job.CancelRequested = 1
+						}
+						json.NewEncoder(w).Encode(map[string]any{"job": job})
+					case 2:
+						if reports.Load() != 1 {
+							t.Error("claimed before cancellation report")
+						}
+						json.NewEncoder(w).Encode(map[string]any{"job": Job{ID: "next", Command: []string{"true"}}})
+					default:
+						fmt.Fprint(w, `{"job":null}`)
+						cancel()
+					}
+				case strings.HasSuffix(r.URL.Path, "/heartbeat"):
+					if _, err := os.Stat(marker); err == nil && reports.Load() == 0 {
+						fmt.Fprint(w, `{"cancel_job_id":"cancelled"}`)
+					} else {
+						fmt.Fprint(w, `{}`)
+					}
+				case strings.HasSuffix(r.URL.Path, "/fail"):
+					var body struct {
+						Error string `json:"error"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body.Error != errRemoteCancellation.Error() {
+						t.Errorf("report: %+v", body)
+					}
+					reports.Add(1)
+					fmt.Fprint(w, `{}`)
+				case strings.HasSuffix(r.URL.Path, "/complete"):
+					completed.Store(true)
+					fmt.Fprint(w, `{}`)
+				default:
+					fmt.Fprint(w, `{}`)
+				}
+			})
+			if err := testWorker(t, client).Run(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("run: %v", err)
+			}
+			if claims.Load() != 3 || reports.Load() != 1 || !completed.Load() || client.remoteDisabled.Load() {
+				t.Fatalf("claims=%d reports=%d completed=%v disabled=%v", claims.Load(), reports.Load(), completed.Load(), client.remoteDisabled.Load())
+			}
+			if preCancelled {
+				if _, err := os.Stat(marker); !os.IsNotExist(err) {
+					t.Fatal("cancelled job launched")
+				}
+			}
+		})
+	}
+}
+
+func TestLateCancellationDoesNotMaskFailure(t *testing.T) {
+	var worker *Worker
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/fail") {
+			worker.active.RequestCancellation("failed")
+		}
+		fmt.Fprint(w, `{}`)
+	})
+	worker = testWorker(t, client)
+	if err := worker.runJob(context.Background(), Job{ID: "failed", Command: []string{"false"}}, client); err != nil {
+		t.Fatal(err)
+	}
+	if !client.remoteDisabled.Load() {
+		t.Fatal("late cancellation masked execution failure")
 	}
 }
 

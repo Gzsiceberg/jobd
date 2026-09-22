@@ -15,19 +15,21 @@ type Result struct {
 	ExitCode   *int
 	Error      string
 	OutputPath string
+	// Cancelled marks execution interrupted by a user, not a late cancel request.
+	Cancelled bool
 }
 
-func executionCancellation(ctx context.Context, fallback string) string {
+func cancellationResult(ctx context.Context, fallback string) Result {
 	if errors.Is(context.Cause(ctx), errRemoteCancellation) {
-		return errRemoteCancellation.Error()
+		return Result{Error: errRemoteCancellation.Error(), Cancelled: true}
 	}
-	return fallback
+	return Result{Error: fallback}
 }
 
 // execute runs argv with combined stdout/stderr in output. The caller owns the file.
 func execute(ctx context.Context, command []string, grace time.Duration, env []string, output *os.File) Result {
 	if ctx.Err() != nil {
-		return Result{Error: executionCancellation(ctx, "Worker shutting down")}
+		return cancellationResult(ctx, "Worker shutting down")
 	}
 	if len(command) == 0 {
 		return Result{Error: "Empty command"}
@@ -63,11 +65,12 @@ func execute(ctx context.Context, command []string, grace time.Duration, env []s
 	signalGroup(cmd.Process.Pid, syscall.SIGKILL)
 	<-done
 	code := cmd.ProcessState.ExitCode()
-	if code == 0 {
-		// A command trapping TERM may exit zero, but was still interrupted.
-		return Result{Error: executionCancellation(ctx, "Worker shut down during execution")}
+	result := cancellationResult(ctx, "Worker shut down during execution")
+	// A command trapping TERM may exit zero, but was still interrupted.
+	if code != 0 {
+		result.ExitCode = &code
 	}
-	return Result{ExitCode: &code, Error: executionCancellation(ctx, "Worker shut down during execution")}
+	return result
 }
 
 // Defense in depth only: jobs run as the worker user and are not sandboxed.

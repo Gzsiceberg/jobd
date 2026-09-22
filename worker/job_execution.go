@@ -17,7 +17,7 @@ type jobBackend interface {
 // Its caller reports using the worker context, not the cancellable job context.
 func (w *Worker) executeJob(ctx context.Context, job Job, backend jobBackend) (result Result) {
 	if ctx.Err() != nil {
-		return Result{Error: executionCancellation(ctx, "Worker shut down before execution")}
+		return cancellationResult(ctx, "Worker shut down before execution")
 	}
 	if len(job.Command) == 0 {
 		return Result{Error: "Empty command"}
@@ -35,7 +35,7 @@ func (w *Worker) executeJob(ctx context.Context, job Job, backend jobBackend) (r
 	slog.Info("Command output redirected", "output", output.Name())
 	// Disabling remote requests must not prevent an already claimed job from executing.
 	if err := backend.Output(ctx, job.ID, output.Name()); err != nil && !(backend == w.client && errors.Is(err, errRemoteDisabled)) {
-		return Result{Error: executionCancellation(ctx, truncateError(fmt.Sprintf("Report output path: %v", err)))}
+		return cancellationResult(ctx, truncateError(fmt.Sprintf("Report output path: %v", err)))
 	}
 	environment := make([]string, 0, len(job.queueEnv))
 	for name, value := range job.queueEnv {
